@@ -41,6 +41,33 @@ export function clearToken() {
   _token = "";
 }
 
+function isJsonResponse(response: Response): boolean {
+  const ct = response.headers.get("content-type") ?? "";
+  return ct.includes("application/json") || ct.includes("text/json");
+}
+
+function extractErrorMessage(text: string, status: number): string {
+  if (!text) return `Errore HTTP ${status}`;
+  // Try to parse JSON error message
+  try {
+    const parsed = JSON.parse(text);
+    return (
+      parsed.message ??
+      parsed.error ??
+      parsed.msg ??
+      parsed.description ??
+      `Errore HTTP ${status}`
+    );
+  } catch {
+    // If it's HTML, return a generic message
+    if (text.trim().startsWith("<")) {
+      return `Il server ha risposto con una pagina HTML (HTTP ${status}). Verifica l'indirizzo e la porta.`;
+    }
+    // Plain text — truncate if too long
+    return text.length > 120 ? text.slice(0, 120) + "…" : text;
+  }
+}
+
 async function apiRequest<T>(
   path: string,
   method: string = "GET",
@@ -54,26 +81,78 @@ async function apiRequest<T>(
     headers["Authorization"] = `Bearer ${_token}`;
   }
 
-  const response = await fetch(`${_baseUrl}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${_baseUrl}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Network request failed") || msg.includes("fetch")) {
+      throw new Error(
+        "Server non raggiungibile. Verifica IP, porta e connessione Wi-Fi."
+      );
+    }
+    throw new Error(msg);
+  }
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(
-      text || `HTTP ${response.status}: ${response.statusText}`
-    );
+    throw new Error(extractErrorMessage(text, response.status));
   }
 
-  return response.json() as Promise<T>;
+  // No body for 204
+  if (response.status === 204) {
+    return undefined as unknown as T;
+  }
+
+  if (!isJsonResponse(response)) {
+    const text = await response.text().catch(() => "");
+    if (text.trim().startsWith("<")) {
+      throw new Error(
+        "Il server ha risposto con una pagina HTML. Verifica che l'IP e la porta siano corretti e che Derby Server Connect sia in esecuzione."
+      );
+    }
+    // Try parsing anyway — some servers omit content-type
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error(
+        `Risposta non valida dal server. Controlla gli endpoint API. Risposta: ${text.slice(0, 80)}`
+      );
+    }
+  }
+
+  try {
+    return (await response.json()) as T;
+  } catch {
+    throw new Error(
+      "Errore nella lettura della risposta JSON dal server."
+    );
+  }
 }
 
 export async function login(
   credentials: AdminCredentials
 ): Promise<LoginResponse> {
-  return apiRequest<LoginResponse>("/api/login", "POST", credentials);
+  const res = await apiRequest<Record<string, unknown>>(
+    "/api/login",
+    "POST",
+    credentials
+  );
+  // Flexible parsing: support various field names
+  const token =
+    (res.token ?? res.access_token ?? res.accessToken ?? res.sessionToken ?? res.session_token ?? "") as string;
+  const username =
+    (res.username ?? res.user ?? res.name ?? credentials.username) as string;
+  if (!token) {
+    throw new Error(
+      "Login riuscito ma nessun token ricevuto. Verifica il formato della risposta del server."
+    );
+  }
+  return { token, username: String(username), serverInfo: res.serverInfo as string | undefined };
 }
 
 export async function logout(): Promise<void> {
@@ -82,10 +161,15 @@ export async function logout(): Promise<void> {
 }
 
 export async function getPendingRequests(): Promise<AuthRequest[]> {
-  const result = await apiRequest<{ requests: AuthRequest[] }>(
-    "/api/authorizations/pending"
-  );
-  return result.requests ?? [];
+  const result = await apiRequest<unknown>("/api/authorizations/pending");
+  // Support both { requests: [] } and [] response shapes
+  if (Array.isArray(result)) return result as AuthRequest[];
+  if (result && typeof result === "object") {
+    const obj = result as Record<string, unknown>;
+    const list = obj.requests ?? obj.data ?? obj.items ?? obj.authorizations ?? [];
+    return Array.isArray(list) ? (list as AuthRequest[]) : [];
+  }
+  return [];
 }
 
 export async function approveRequest(
@@ -104,14 +188,22 @@ export async function denyRequest(id: string, note?: string): Promise<void> {
 }
 
 export async function testConnection(config: ServerConfig): Promise<boolean> {
-  try {
-    const url = `http://${config.ip}:${config.port}/api/ping`;
-    const response = await fetch(url, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-    return response.ok || response.status === 401;
-  } catch {
-    return false;
+  const endpoints = ["/api/ping", "/api/status", "/", "/api"];
+  for (const ep of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch(`http://${config.ip}:${config.port}${ep}`, {
+        method: "GET",
+        headers: { Accept: "application/json, text/html, */*" },
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      // Any response (even 401/403) means the server is reachable
+      if (response.status < 500) return true;
+    } catch {
+      // Try next endpoint
+    }
   }
+  return false;
 }
