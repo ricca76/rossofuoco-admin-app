@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Image,
   Platform,
   StyleSheet,
   Text,
@@ -19,6 +18,7 @@ import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { NetworkScanner, FoundServer } from "@/components/NetworkScanner";
 import { ServerConfig, testConnection } from "@/services/derbyApi";
 
 export default function LoginScreen() {
@@ -35,6 +35,14 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
   const [connOk, setConnOk] = useState<boolean | null>(null);
+  const [scannerVisible, setScannerVisible] = useState(false);
+
+  const handleServerFound = (server: FoundServer) => {
+    setIp(server.ip);
+    setPort(String(server.port));
+    setConnOk(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
 
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
@@ -114,9 +122,18 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.form}>
-          <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
-            SERVER
-          </Text>
+          <View style={styles.sectionRow}>
+            <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+              SERVER
+            </Text>
+            <TouchableOpacity
+              style={[styles.scannerBtn, { backgroundColor: theme.primary + "15", borderColor: theme.primary + "40" }]}
+              onPress={() => setScannerVisible(true)}
+            >
+              <Feather name="radio" size={13} color={theme.primary} />
+              <Text style={[styles.scannerBtnText, { color: theme.primary }]}>Scansiona</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={[styles.inputGroup, { borderColor: theme.border, backgroundColor: theme.card }]}>
             <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
@@ -256,6 +273,12 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAwareScrollView>
+
+      <NetworkScanner
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onSelect={handleServerFound}
+      />
     </View>
   );
 }
@@ -283,12 +306,30 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   form: { gap: 8 },
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
   sectionLabel: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
     letterSpacing: 1,
-    marginBottom: 4,
     marginLeft: 4,
+  },
+  scannerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  scannerBtnText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
   },
   inputGroup: {
     borderWidth: 1,
