@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/"
+title = "Derby Admin"
+version = "1.0.0"
+id = "artifacts/derby-admin"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/" ]
+localPort = 20811
+
+[services.development]
+run = "pnpm --filter @workspace/derby-admin run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/derby-admin", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/derby-admin", "run", "serve" ]
+
+[services.env]
+PORT = "20811"
+BASE_PATH = "/"
