@@ -7,6 +7,16 @@ export interface AdminCredentials {
   pin: string;
 }
 
+export interface AdminUser {
+  id: number;
+  firstName: string;
+  lastName: string;
+  active: boolean;
+  isAdmin: boolean;
+  hasPinSet: boolean;
+  visibleInLogin: boolean;
+}
+
 export interface AuthRequest {
   id: string;
   type: string;
@@ -53,7 +63,7 @@ function extractErrorMessage(text: string, status: number): string {
     );
   } catch {
     if (text.trim().startsWith("<")) {
-      return `Il server ha risposto con HTML (HTTP ${status}). Verifica l'indirizzo e la porta.`;
+      return `Il server ha risposto con HTML (HTTP ${status}). Verifica IP e porta.`;
     }
     return text.length > 120 ? text.slice(0, 120) + "…" : text;
   }
@@ -75,7 +85,7 @@ async function apiRequest<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${_baseUrl}${path}`, {
+    response = await fetch(`${_baseUrl}/api${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -86,7 +96,7 @@ async function apiRequest<T>(
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("aborted") || msg.includes("timeout")) {
       throw new Error(
-        "Timeout: il server non ha risposto in tempo. Verifica IP, porta e connessione Wi-Fi."
+        "Timeout: il server non ha risposto in tempo. Verifica IP, porta e Wi-Fi."
       );
     }
     if (
@@ -135,6 +145,12 @@ async function apiRequest<T>(
   }
 }
 
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  const res = await apiRequest<{ users: AdminUser[] }>("/users");
+  const all = Array.isArray(res.users) ? res.users : [];
+  return all.filter((u) => u.isAdmin && u.active && u.hasPinSet);
+}
+
 export async function login(
   credentials: AdminCredentials
 ): Promise<LoginResponse> {
@@ -153,9 +169,7 @@ export async function login(
 }
 
 export async function getPendingRequests(): Promise<AuthRequest[]> {
-  const result = await apiRequest<{ requests: AuthRequest[] }>(
-    "/auth-requests"
-  );
+  const result = await apiRequest<{ requests: AuthRequest[] }>("/auth-requests");
   return Array.isArray(result.requests) ? result.requests : [];
 }
 
@@ -174,11 +188,14 @@ export async function testConnection(config: ServerConfig): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const response = await fetch(`http://${config.ip}:${config.port}/healthz`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    });
+    const response = await fetch(
+      `http://${config.ip}:${config.port}/api/healthz`,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      }
+    );
     clearTimeout(timer);
     return response.status === 200;
   } catch {
@@ -191,7 +208,7 @@ export function subscribeToEvents(
   onEvent: (type: string, data: unknown) => void,
   onError?: () => void
 ): () => void {
-  const url = `${_baseUrl}/events/stream`;
+  const url = `${_baseUrl}/api/events/stream`;
   let es: EventSource | null = null;
   let closed = false;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;

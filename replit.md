@@ -34,13 +34,16 @@ Il server Rosso Fuoco Console gira sulla **porta 51521** (default locale).
 
 ### Endpoint usati dall'app
 
+Tutte le route sono montate sotto `/api/` (confermato dal sorgente: `app.use("/api", routes_default)`).
+
 | Metodo | Percorso | Descrizione |
 |--------|----------|-------------|
-| GET | `/healthz` | Verifica raggiungibilità server |
-| POST | `/users/verify-admin-pin` | Login con PIN admin → `{ pin: string }` → `{ ok, userId, name }` |
-| GET | `/auth-requests` | Lista richieste in attesa → `{ requests: AuthRequest[] }` |
-| POST | `/auth-requests/:id/resolve` | Approva/rifiuta → `{ approved: boolean, adminName?: string }` |
-| GET | `/events/stream` | SSE per notifiche in tempo reale |
+| GET | `/api/healthz` | Verifica raggiungibilità server |
+| GET | `/api/users` | Lista utenti (usato per picker operatori) → `{ users: AdminUser[] }` |
+| POST | `/api/users/verify-admin-pin` | Login con PIN admin → `{ pin: string }` → `{ ok, userId, name }` |
+| GET | `/api/auth-requests` | Lista richieste in attesa → `{ requests: AuthRequest[] }` |
+| POST | `/api/auth-requests/:id/resolve` | Approva/rifiuta → `{ approved: boolean, adminName?: string }` |
+| GET | `/api/events/stream` | SSE per notifiche in tempo reale |
 
 ### Struttura AuthRequest
 
