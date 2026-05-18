@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Image,
   Platform,
   StyleSheet,
   Text,
@@ -193,16 +194,13 @@ export default function LoginScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <View
-            style={[
-              styles.logoBox,
-              { backgroundColor: theme.primary + "15" },
-            ]}
-          >
-            <Feather name="shield" size={36} color={theme.primary} />
-          </View>
+          <Image
+            source={require("@/assets/images/icon.png")}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={[styles.title, { color: theme.foreground }]}>
-            Derby Admin
+            Rosso Admin
           </Text>
           <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
             Autorizzazioni POS · Rosso Fuoco
@@ -569,12 +567,9 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { paddingHorizontal: 24 },
   header: { alignItems: "center", marginBottom: 36 },
-  logoBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
+  logoImage: {
+    width: 90,
+    height: 90,
     marginBottom: 16,
   },
   title: {

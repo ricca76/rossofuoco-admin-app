@@ -1,4 +1,4 @@
-# Derby Admin
+# Rosso Admin
 
 App iPhone per connettersi a Rosso Fuoco Console (Derby Server Connect) come admin e autorizzare tutte le richieste che necessitano di autorizzazione.
 

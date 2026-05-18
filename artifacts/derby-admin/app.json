@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Derby Admin",
-    "slug": "derby-admin",
+    "name": "Rosso Admin",
+    "slug": "rosso-admin",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "derby-admin",
+    "scheme": "rosso-admin",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {

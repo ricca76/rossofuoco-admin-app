@@ -217,7 +217,7 @@ export default function SettingsScreen() {
       </TouchableOpacity>
 
       <Text style={[styles.version, { color: theme.mutedForeground }]}>
-        Derby Admin v1.0 · Rosso Fuoco Console
+        Rosso Admin v1.0 · Rosso Fuoco Console
       </Text>
     </ScrollView>
   );
