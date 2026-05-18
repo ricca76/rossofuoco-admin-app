@@ -38,14 +38,21 @@ function formatEuro(amount: number): string {
   });
 }
 
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getDateStr(offset: number = 0): string {
   const d = new Date();
   d.setDate(d.getDate() + offset);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateStr(d);
 }
 
 function formatDateLabel(dateStr: string): string {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getDateStr(0);
   const yesterday = getDateStr(-1);
   if (dateStr === today) return "Oggi";
   if (dateStr === yesterday) return "Ieri";
@@ -148,9 +155,9 @@ export default function ReceiptsScreen() {
           ]}
           onPress={() => {
             Haptics.selectionAsync();
-            const d = new Date(selectedDate + "T00:00:00");
+            const d = new Date(selectedDate + "T12:00:00");
             d.setDate(d.getDate() - 1);
-            setSelectedDate(d.toISOString().slice(0, 10));
+            setSelectedDate(toLocalDateStr(d));
           }}
         >
           <Feather name="chevron-left" size={18} color={theme.foreground} />
@@ -186,9 +193,9 @@ export default function ReceiptsScreen() {
           disabled={selectedDate >= getDateStr(0)}
           onPress={() => {
             Haptics.selectionAsync();
-            const d = new Date(selectedDate + "T00:00:00");
+            const d = new Date(selectedDate + "T12:00:00");
             d.setDate(d.getDate() + 1);
-            setSelectedDate(d.toISOString().slice(0, 10));
+            setSelectedDate(toLocalDateStr(d));
           }}
         >
           <Feather name="chevron-right" size={18} color={theme.foreground} />
