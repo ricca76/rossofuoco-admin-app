@@ -226,12 +226,14 @@ export async function getDailyReceipts(
   const operators = Array.isArray(res.operators) ? res.operators : [];
   const tickets: DailyReceipt[] = [];
 
+  let globalIdx = 0;
   for (const op of operators) {
     const serverName =
       [op.firstName, op.lastName].filter(Boolean).join(" ").trim() || null;
     for (const r of Array.isArray(op.tickets) ? op.tickets : []) {
+      const rawId = String(r.ticketId ?? r.id ?? "");
       tickets.push({
-        id: String(r.ticketId ?? r.id ?? ""),
+        id: rawId || `ticket-${globalIdx++}`,
         shortId: r.shortId != null && String(r.shortId) !== "" ? String(r.shortId) : null,
         tokenNo: r.tokenNo != null && String(r.tokenNo) !== "" ? String(r.tokenNo) : null,
         tableNum: r.tableNum != null && String(r.tableNum) !== "" ? String(r.tableNum) : null,

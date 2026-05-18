@@ -293,7 +293,7 @@ export default function ReceiptsScreen() {
       <FlatList<DailyReceipt>
         style={{ flex: 1 }}
         data={receipts}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => item.id ? `${item.id}-${index}` : String(index)}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[
