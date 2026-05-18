@@ -304,7 +304,11 @@ export default function ReceiptsScreen() {
               Haptics.selectionAsync();
               router.push({
                 pathname: "/(main)/receipt/[id]",
-                params: { id: item.id },
+                params: {
+                  id: item.id,
+                  closingDate: item.closingDate ?? "",
+                  server: item.server ?? "",
+                },
               });
             }}
             activeOpacity={0.75}

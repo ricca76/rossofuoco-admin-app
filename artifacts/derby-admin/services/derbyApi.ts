@@ -353,9 +353,51 @@ export interface PrinterGroup {
   pgName: string;
 }
 
+export interface PrinterDevice {
+  ip: string;
+  port: number;
+}
+
+export interface PrinterGroupConfig extends PrinterGroup {
+  printers: PrinterDevice[];
+}
+
+export interface PrinterConfig {
+  groups: PrinterGroupConfig[];
+}
+
 export async function getPrinterGroups(): Promise<PrinterGroup[]> {
   const res = await apiRequest<{ groups: PrinterGroup[] }>("/pos/printer-groups");
   return Array.isArray(res.groups) ? res.groups : [];
+}
+
+export async function getPrinterConfig(): Promise<PrinterConfig> {
+  const res = await apiRequest<PrinterConfig>("/pos/printers-config");
+  return { groups: Array.isArray(res.groups) ? res.groups : [] };
+}
+
+export interface FiscalReceiptPayload {
+  shortId: string | null;
+  tokenNo: string | null;
+  closingDate: string | null;
+  tableNum: string | null;
+  guests: number | null;
+  waiter: string | null;
+  total: number;
+  paid: number;
+  items: Array<{ name: string; qty: number; totalPrice: number }>;
+}
+
+export async function printFiscalReceiptToPrinter(
+  ip: string,
+  port: number,
+  receipt: FiscalReceiptPayload
+): Promise<void> {
+  await apiRequest<{ ok: boolean }>("/printers/print-receipt", "POST", {
+    ip,
+    port,
+    receipt,
+  });
 }
 
 export async function sendPrinterMessage(
