@@ -119,8 +119,7 @@ export default function RequestDetailScreen() {
     );
   }, [request, deny, adminName]);
 
-  const bottomPadding =
-    insets.bottom + (Platform.OS === "web" ? 34 : 24);
+  const bottomPadding = insets.bottom + (Platform.OS === "web" ? 34 : 24);
 
   if (!request) {
     return (
@@ -158,12 +157,14 @@ export default function RequestDetailScreen() {
     request.payload?.total ??
     request.payload?.price;
 
-  const biometricIcon =
+  const biometricIcon: keyof typeof Feather.glyphMap =
     biometricType === "faceId"
       ? "smile"
       : biometricType === "fingerprint"
       ? "radio"
-      : "check";
+      : "check-circle";
+
+  const hasBiometric = biometricType !== "none";
 
   return (
     <ScrollView
@@ -171,7 +172,13 @@ export default function RequestDetailScreen() {
       contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding }]}
       showsVerticalScrollIndicator={false}
     >
-      <View style={[styles.typeChip, { backgroundColor: theme.primary + "18" }]}>
+      {/* Type + description */}
+      <View
+        style={[
+          styles.typeChip,
+          { backgroundColor: theme.primary + "18" },
+        ]}
+      >
         <Text style={[styles.typeText, { color: theme.primary }]}>
           {typeLabel.toUpperCase()}
         </Text>
@@ -181,8 +188,14 @@ export default function RequestDetailScreen() {
         {request.description}
       </Text>
 
+      {/* Amount */}
       {amount != null && (
-        <View style={[styles.amountBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View
+          style={[
+            styles.amountBox,
+            { backgroundColor: theme.card, borderColor: theme.border },
+          ]}
+        >
           <Text style={[styles.amountLabel, { color: theme.mutedForeground }]}>
             Importo
           </Text>
@@ -192,22 +205,62 @@ export default function RequestDetailScreen() {
         </View>
       )}
 
-      <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <InfoRow icon="user" label="Operatore" value={request.operatorName} theme={theme} />
+      {/* Info */}
+      <View
+        style={[
+          styles.infoCard,
+          { backgroundColor: theme.card, borderColor: theme.border },
+        ]}
+      >
+        <InfoRow
+          icon="user"
+          label="Operatore"
+          value={request.operatorName}
+          theme={theme}
+        />
         {request.tableNum && (
-          <InfoRow icon="grid" label="Tavolo" value={request.tableNum} theme={theme} />
+          <InfoRow
+            icon="grid"
+            label="Tavolo"
+            value={request.tableNum}
+            theme={theme}
+          />
         )}
-        <InfoRow icon="hash" label="Conto" value={request.ticketId} theme={theme} />
-        <InfoRow icon="clock" label="Orario" value={formattedTime} theme={theme} />
-        <InfoRow icon="tag" label="ID" value={request.id.slice(0, 8) + "…"} theme={theme} isLast />
+        <InfoRow
+          icon="hash"
+          label="Conto"
+          value={request.ticketId}
+          theme={theme}
+        />
+        <InfoRow
+          icon="clock"
+          label="Orario"
+          value={formattedTime}
+          theme={theme}
+        />
+        <InfoRow
+          icon="tag"
+          label="ID"
+          value={request.id.slice(0, 8) + "…"}
+          theme={theme}
+          isLast
+        />
       </View>
 
+      {/* Payload details */}
       {payloadEntries.length > 0 && (
         <>
-          <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+          <Text
+            style={[styles.sectionLabel, { color: theme.mutedForeground }]}
+          >
             DETTAGLI
           </Text>
-          <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View
+            style={[
+              styles.infoCard,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
             {payloadEntries.map(([key, val], i, arr) => (
               <InfoRow
                 key={key}
@@ -222,72 +275,71 @@ export default function RequestDetailScreen() {
         </>
       )}
 
-      {/* Biometric hint */}
-      {biometricType !== "none" && (
-        <View
-          style={[
-            styles.biometricHint,
-            {
-              backgroundColor: theme.card,
-              borderColor: theme.border,
-            },
-          ]}
-        >
-          <Feather name={biometricIcon} size={16} color={theme.mutedForeground} />
-          <Text style={[styles.biometricHintText, { color: theme.mutedForeground }]}>
-            Verrà richiesto {biometricLabel(biometricType)} per autorizzare
-          </Text>
-        </View>
-      )}
-
+      {/* ── Azioni ────────────────────────────────────────────── */}
       <View style={styles.actions}>
+        {/* Biometric indicator */}
+        {hasBiometric && (
+          <View
+            style={[
+              styles.biometricBadge,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <Feather name={biometricIcon} size={14} color={theme.mutedForeground} />
+            <Text
+              style={[styles.biometricBadgeText, { color: theme.mutedForeground }]}
+            >
+              Richiede {biometricLabel(biometricType)} per autorizzare
+            </Text>
+          </View>
+        )}
+
+        {/* Approve — full width, prominent */}
         <TouchableOpacity
           style={[
-            styles.actionBtn,
-            styles.denyBtn,
-            { borderColor: theme.destructive + "50", backgroundColor: theme.destructive + "12" },
-            denying && { opacity: 0.6 },
+            styles.approveBtn,
+            { backgroundColor: theme.success },
+            (approving || denying) && styles.btnDisabled,
           ]}
-          onPress={handleDeny}
+          onPress={handleApprove}
           disabled={approving || denying}
-          activeOpacity={0.8}
+          activeOpacity={0.82}
         >
-          {denying ? (
-            <ActivityIndicator size={18} color={theme.destructive} />
+          {approving ? (
+            <ActivityIndicator size={22} color="#fff" />
           ) : (
             <>
-              <Feather name="x" size={20} color={theme.destructive} />
-              <Text style={[styles.btnText, { color: theme.destructive }]}>
-                Rifiuta
+              <Feather name={biometricIcon} size={22} color="#fff" />
+              <Text style={styles.approveBtnText}>
+                {hasBiometric
+                  ? `Autorizza con ${biometricLabel(biometricType)}`
+                  : "Autorizza richiesta"}
               </Text>
             </>
           )}
         </TouchableOpacity>
 
+        {/* Deny — full width, secondary */}
         <TouchableOpacity
           style={[
-            styles.actionBtn,
-            styles.approveBtn,
-            { backgroundColor: theme.success },
-            approving && { opacity: 0.6 },
+            styles.denyBtn,
+            {
+              borderColor: theme.destructive + "55",
+              backgroundColor: theme.destructive + "0D",
+            },
+            (approving || denying) && styles.btnDisabled,
           ]}
-          onPress={handleApprove}
+          onPress={handleDeny}
           disabled={approving || denying}
-          activeOpacity={0.8}
+          activeOpacity={0.82}
         >
-          {approving ? (
-            <ActivityIndicator size={18} color="#fff" />
+          {denying ? (
+            <ActivityIndicator size={18} color={theme.destructive} />
           ) : (
             <>
-              <Feather
-                name={biometricType !== "none" ? biometricIcon : "check"}
-                size={20}
-                color="#fff"
-              />
-              <Text style={[styles.btnText, { color: "#fff" }]}>
-                {biometricType !== "none"
-                  ? `Autorizza con ${biometricLabel(biometricType)}`
-                  : "Autorizza"}
+              <Feather name="x-circle" size={18} color={theme.destructive} />
+              <Text style={[styles.denyBtnText, { color: theme.destructive }]}>
+                Rifiuta richiesta
               </Text>
             </>
           )}
@@ -314,14 +366,20 @@ function InfoRow({
     <View
       style={[
         styles.infoRow,
-        !isLast && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border },
+        !isLast && {
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: theme.border,
+        },
       ]}
     >
-      <Feather name={icon} size={14} color={theme.mutedForeground} style={styles.infoIcon} />
+      <Feather name={icon} size={14} color={theme.mutedForeground} />
       <Text style={[styles.infoLabel, { color: theme.mutedForeground }]}>
         {label}
       </Text>
-      <Text style={[styles.infoValue, { color: theme.foreground }]} numberOfLines={2}>
+      <Text
+        style={[styles.infoValue, { color: theme.foreground }]}
+        numberOfLines={2}
+      >
         {value}
       </Text>
     </View>
@@ -330,8 +388,14 @@ function InfoRow({
 
 const styles = StyleSheet.create({
   scroll: { padding: 20, gap: 14 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
   notFoundText: { fontSize: 16, fontFamily: "Inter_400Regular" },
+
   typeChip: {
     alignSelf: "flex-start",
     paddingHorizontal: 12,
@@ -348,16 +412,19 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     lineHeight: 27,
   },
+
   amountBox: {
     borderRadius: 14,
     borderWidth: 1,
-    padding: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
   amountLabel: { fontSize: 14, fontFamily: "Inter_500Medium" },
-  amountValue: { fontSize: 22, fontFamily: "Inter_700Bold" },
+  amountValue: { fontSize: 24, fontFamily: "Inter_700Bold" },
+
   sectionLabel: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",
@@ -377,40 +444,66 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     gap: 10,
   },
-  infoIcon: {},
-  infoLabel: { fontSize: 13, fontFamily: "Inter_400Regular", width: 90 },
-  infoValue: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "right" },
-  biometricHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  biometricHintText: {
+  infoLabel: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
-    flex: 1,
+    width: 90,
   },
+  infoValue: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    textAlign: "right",
+  },
+
   actions: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 4,
+    gap: 10,
+    marginTop: 6,
   },
-  actionBtn: {
-    flex: 1,
-    height: 54,
+
+  biometricBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  biometricBadgeText: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+  },
+
+  approveBtn: {
+    height: 64,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  approveBtnText: {
+    color: "#fff",
+    fontSize: 17,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.2,
+  },
+
+  denyBtn: {
+    height: 52,
     borderRadius: 14,
+    borderWidth: 1.5,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
   },
-  denyBtn: { borderWidth: 1.5 },
-  approveBtn: {},
-  btnText: {
+  denyBtnText: {
     fontSize: 15,
     fontFamily: "Inter_600SemiBold",
   },
+
+  btnDisabled: { opacity: 0.55 },
 });
