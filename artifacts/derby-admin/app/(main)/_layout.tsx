@@ -27,6 +27,7 @@ export default function MainLayout() {
         <Stack.Screen name="history" options={{ headerShown: false }} />
         <Stack.Screen name="receipts" options={{ headerShown: false }} />
         <Stack.Screen name="messages" options={{ headerShown: false }} />
+        <Stack.Screen name="summary" options={{ headerShown: false }} />
         <Stack.Screen
           name="request/[id]"
           options={{

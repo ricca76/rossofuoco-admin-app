@@ -208,6 +208,95 @@ export interface DailySummaryResponse {
   ticketCount: number;
 }
 
+// ── Full daily summary (for Riepilogo screen) ─────────────────────────────────
+
+export interface DailySummaryOperator {
+  firstName: string;
+  lastName: string;
+  receiptCount: number;
+  total: number;
+  cash: number;
+  card: number;
+  gc: number;
+  stornoCount: number;
+  stornoAmount: number;
+  tickets: Array<{
+    ticketId: string;
+    shortId: string | null;
+    tokenNo: string | null;
+    tableNum: string | null;
+    total: number;
+    closingDate: string | null;
+    cashAmount: number;
+    cardAmount: number;
+    gcAmount: number;
+    voidedCount: number;
+    voidedAmount: number;
+  }>;
+}
+
+export interface DailySummaryTotals {
+  receiptCount: number;
+  total: number;
+  cash: number;
+  card: number;
+  gc: number;
+  stornoCount: number;
+  stornoAmount: number;
+}
+
+export interface FullDailySummaryResponse {
+  date: string;
+  operators: DailySummaryOperator[];
+  totals: DailySummaryTotals;
+}
+
+export async function getDailySummaryFull(date: string): Promise<FullDailySummaryResponse> {
+  const res = await apiRequest<{
+    date?: string;
+    operators?: Array<Record<string, unknown>>;
+    totals?: Record<string, unknown>;
+  }>(`/reports/daily-summary?date=${date}`, "GET", undefined, 30000);
+
+  const operators: DailySummaryOperator[] = (Array.isArray(res.operators) ? res.operators : []).map((op) => ({
+    firstName: String(op.firstName ?? ""),
+    lastName: String(op.lastName ?? ""),
+    receiptCount: Number(op.receiptCount ?? 0),
+    total: Number(op.total ?? 0),
+    cash: Number(op.cash ?? 0),
+    card: Number(op.card ?? 0),
+    gc: Number(op.gc ?? 0),
+    stornoCount: Number(op.stornoCount ?? 0),
+    stornoAmount: Number(op.stornoAmount ?? 0),
+    tickets: (Array.isArray(op.tickets) ? op.tickets : []).map((t: Record<string, unknown>) => ({
+      ticketId: String(t.ticketId ?? ""),
+      shortId: t.shortId != null && String(t.shortId) !== "" ? String(t.shortId) : null,
+      tokenNo: t.tokenNo != null && String(t.tokenNo) !== "" ? String(t.tokenNo) : null,
+      tableNum: t.tableNum != null && String(t.tableNum) !== "" ? String(t.tableNum) : null,
+      total: Number(t.total ?? 0),
+      closingDate: t.closingDate != null ? String(t.closingDate) : null,
+      cashAmount: Number(t.cashAmount ?? 0),
+      cardAmount: Number(t.cardAmount ?? 0),
+      gcAmount: Number(t.gcAmount ?? 0),
+      voidedCount: Number(t.voidedCount ?? 0),
+      voidedAmount: Number(t.voidedAmount ?? 0),
+    })),
+  }));
+
+  const rt = res.totals ?? {};
+  const totals: DailySummaryTotals = {
+    receiptCount: Number(rt.receiptCount ?? 0),
+    total: Number(rt.total ?? 0),
+    cash: Number(rt.cash ?? 0),
+    card: Number(rt.card ?? 0),
+    gc: Number(rt.gc ?? 0),
+    stornoCount: Number(rt.stornoCount ?? 0),
+    stornoAmount: Number(rt.stornoAmount ?? 0),
+  };
+
+  return { date: res.date ?? date, operators, totals };
+}
+
 export async function getDailyReceipts(
   date?: string
 ): Promise<DailySummaryResponse> {

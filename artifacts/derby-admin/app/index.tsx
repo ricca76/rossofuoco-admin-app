@@ -8,13 +8,13 @@ import {
   Animated,
   Image,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
   useColorScheme,
-  ScrollView,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +28,15 @@ import {
   getAdminUsers,
   testConnection,
 } from "@/services/derbyApi";
+import {
+  BiometricType,
+  authenticateWithBiometrics,
+  biometricLabel,
+  getBiometricType,
+} from "@/services/biometrics";
+
+const DEFAULT_IP = "192.168.0.177";
+const FIXED_PORT = 51521;
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -36,32 +45,38 @@ export default function LoginScreen() {
   const theme = isDark ? colors.dark : colors.light;
   const {
     signIn,
+    signInWithStoredPin,
     saveServerConfig,
     serverConfig,
     isConnected,
     isLoading,
     error,
     clearError,
+    hasSavedCredentials,
+    adminName: savedAdminName,
   } = useAuth();
 
-  const [ip, setIp] = useState(serverConfig?.ip ?? "");
-  const [port, setPort] = useState(String(serverConfig?.port ?? "51521"));
+  const [ip, setIp] = useState(serverConfig?.ip ?? DEFAULT_IP);
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
   const [connOk, setConnOk] = useState<boolean | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
-
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
+  const [biometricType, setBiometricType] = useState<BiometricType>("none");
+  const [biometricLoading, setBiometricLoading] = useState(false);
 
   const pinRef = useRef<TextInput>(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
+  useEffect(() => {
+    getBiometricType().then(setBiometricType).catch(() => {});
+  }, []);
+
   const handleServerFound = (server: FoundServer) => {
     setIp(server.ip);
-    setPort(String(server.port));
     setConnOk(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -75,30 +90,14 @@ export default function LoginScreen() {
   useEffect(() => {
     if (error) {
       Animated.sequence([
-        Animated.timing(shakeAnim, {
-          toValue: 10,
-          duration: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shakeAnim, {
-          toValue: -10,
-          duration: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shakeAnim, {
-          toValue: 6,
-          duration: 80,
-          useNativeDriver: true,
-        }),
-        Animated.timing(shakeAnim, {
-          toValue: 0,
-          duration: 80,
-          useNativeDriver: true,
-        }),
+        Animated.timing(shakeAnim, { toValue: 10, duration: 80, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -10, duration: 80, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 6, duration: 80, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 80, useNativeDriver: true }),
       ]).start();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     }
-  }, [error]);
+  }, [error, shakeAnim]);
 
   const loadUsers = async (cfg: ServerConfig) => {
     setLoadingUsers(true);
@@ -113,7 +112,7 @@ export default function LoginScreen() {
         setTimeout(() => pinRef.current?.focus(), 200);
       }
     } catch {
-      // silenzioso — utenti non caricati, si può procedere manualmente
+      // silenzioso
     } finally {
       setLoadingUsers(false);
     }
@@ -127,7 +126,7 @@ export default function LoginScreen() {
     setTestingConn(true);
     setConnOk(null);
     clearError();
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
+    const config: ServerConfig = { ip: ip.trim(), port: FIXED_PORT };
     const ok = await testConnection(config);
     setConnOk(ok);
     setTestingConn(false);
@@ -159,16 +158,29 @@ export default function LoginScreen() {
       Alert.alert("Campo mancante", "Inserisci il PIN admin.");
       return;
     }
-    const config: ServerConfig = {
-      ip: ip.trim(),
-      port: Number(port) || 51521,
-    };
+    const config: ServerConfig = { ip: ip.trim(), port: FIXED_PORT };
     await saveServerConfig(config);
     await signIn({ pin: pin.trim() });
   };
 
-  const topPadding =
-    Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
+  const handleFaceIdLogin = async () => {
+    if (!hasSavedCredentials) return;
+    const label = biometricLabel(biometricType);
+    setBiometricLoading(true);
+    clearError();
+    const auth = await authenticateWithBiometrics(
+      `Usa ${label} per accedere a Rosso Admin`
+    );
+    if (!auth.success) {
+      setBiometricLoading(false);
+      if (auth.error) Alert.alert("Autenticazione", auth.error);
+      return;
+    }
+    await signInWithStoredPin();
+    setBiometricLoading(false);
+  };
+
+  const topPadding = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
 
   const getUserInitials = (user: AdminUser) => {
     const f = user.firstName?.[0] ?? "";
@@ -179,20 +191,22 @@ export default function LoginScreen() {
   const getUserFullName = (user: AdminUser) =>
     [user.firstName, user.lastName].filter(Boolean).join(" ") || "Utente";
 
+  const biometricIcon: keyof typeof Feather.glyphMap =
+    biometricType === "faceId" ? "smile" : "radio";
+
+  const showBiometricBtn = hasSavedCredentials && biometricType !== "none";
+
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
       <KeyboardAwareScrollView
         contentContainerStyle={[
           styles.scroll,
-          {
-            paddingTop: topPadding + 24,
-            paddingBottom: insets.bottom + 40,
-          },
+          { paddingTop: topPadding + 24, paddingBottom: insets.bottom + 40 },
         ]}
         keyboardShouldPersistTaps="handled"
         bottomOffset={24}
       >
-        {/* Header */}
+        {/* Logo */}
         <View style={styles.header}>
           <View style={styles.logoWrapper}>
             <Image
@@ -209,21 +223,57 @@ export default function LoginScreen() {
           </Text>
         </View>
 
-        <View style={styles.form}>
-          {/* Server section */}
-          <View style={styles.sectionRow}>
-            <Text
-              style={[styles.sectionLabel, { color: theme.mutedForeground }]}
+        {/* ── Face ID fast login ─────────────────────────────────── */}
+        {showBiometricBtn && (
+          <View style={styles.biometricSection}>
+            <TouchableOpacity
+              style={[
+                styles.biometricBtn,
+                { backgroundColor: theme.primary, opacity: biometricLoading ? 0.7 : 1 },
+              ]}
+              onPress={handleFaceIdLogin}
+              disabled={biometricLoading || isLoading}
+              activeOpacity={0.82}
             >
+              {biometricLoading ? (
+                <ActivityIndicator color="#fff" size={22} />
+              ) : (
+                <>
+                  <Feather name={biometricIcon} size={22} color="#fff" />
+                  <View>
+                    <Text style={styles.biometricBtnTitle}>
+                      Accedi con {biometricLabel(biometricType)}
+                    </Text>
+                    {savedAdminName && (
+                      <Text style={styles.biometricBtnSub}>
+                        {savedAdminName}
+                      </Text>
+                    )}
+                  </View>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.dividerRow}>
+              <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+              <Text style={[styles.dividerText, { color: theme.mutedForeground }]}>
+                oppure accedi con PIN
+              </Text>
+              <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+            </View>
+          </View>
+        )}
+
+        <View style={styles.form}>
+          {/* SERVER */}
+          <View style={styles.sectionRow}>
+            <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
               SERVER
             </Text>
             <TouchableOpacity
               style={[
                 styles.scannerBtn,
-                {
-                  backgroundColor: theme.primary + "15",
-                  borderColor: theme.primary + "40",
-                },
+                { backgroundColor: theme.primary + "15", borderColor: theme.primary + "40" },
               ]}
               onPress={() => setScannerVisible(true)}
             >
@@ -240,21 +290,12 @@ export default function LoginScreen() {
               { borderColor: theme.border, backgroundColor: theme.card },
             ]}
           >
-            <View
-              style={[
-                styles.inputRow,
-                { borderBottomColor: theme.border },
-              ]}
-            >
-              <Feather
-                name="server"
-                size={16}
-                color={theme.mutedForeground}
-                style={styles.inputIcon}
-              />
+            {/* IP */}
+            <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
+              <Feather name="server" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, { color: theme.foreground }]}
-                placeholder="Indirizzo IP (es. 192.168.1.10)"
+                placeholder={`IP (default: ${DEFAULT_IP})`}
                 placeholderTextColor={theme.mutedForeground}
                 value={ip}
                 onChangeText={(t) => {
@@ -267,28 +308,6 @@ export default function LoginScreen() {
                 keyboardType="numbers-and-punctuation"
                 autoCapitalize="none"
                 autoCorrect={false}
-              />
-            </View>
-            <View style={styles.inputRow}>
-              <Feather
-                name="radio"
-                size={16}
-                color={theme.mutedForeground}
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={[styles.input, { color: theme.foreground }]}
-                placeholder="Porta (default: 51521)"
-                placeholderTextColor={theme.mutedForeground}
-                value={port}
-                onChangeText={(t) => {
-                  setPort(t);
-                  setConnOk(null);
-                  setAdminUsers([]);
-                  setSelectedUser(null);
-                  clearError();
-                }}
-                keyboardType="number-pad"
               />
               <TouchableOpacity
                 style={[
@@ -309,24 +328,25 @@ export default function LoginScreen() {
                   <ActivityIndicator size={14} color={theme.primary} />
                 ) : (
                   <Feather
-                    name={
-                      connOk === true
-                        ? "check"
-                        : connOk === false
-                        ? "x"
-                        : "wifi"
-                    }
+                    name={connOk === true ? "check" : connOk === false ? "x" : "wifi"}
                     size={14}
-                    color={
-                      connOk === true
-                        ? theme.success
-                        : connOk === false
-                        ? theme.destructive
-                        : theme.primary
-                    }
+                    color={connOk === true ? theme.success : connOk === false ? theme.destructive : theme.primary}
                   />
                 )}
               </TouchableOpacity>
+            </View>
+
+            {/* Porta fissa */}
+            <View style={styles.inputRow}>
+              <Feather name="radio" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
+              <Text style={[styles.portFixed, { color: theme.mutedForeground }]}>
+                Porta
+              </Text>
+              <View style={[styles.portBadge, { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" }]}>
+                <Text style={[styles.portBadgeText, { color: theme.primary }]}>
+                  {FIXED_PORT}
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -337,39 +357,20 @@ export default function LoginScreen() {
           )}
           {connOk === false && (
             <Text style={[styles.hint, { color: theme.destructive }]}>
-              Server non raggiungibile. Verifica IP, porta (51521) e Wi-Fi.
+              Server non raggiungibile. Verifica IP e Wi-Fi.
             </Text>
           )}
 
-          {/* User picker — shown when server is reachable */}
+          {/* Seleziona operatore */}
           {(adminUsers.length > 0 || loadingUsers) && (
             <>
-              <Text
-                style={[
-                  styles.sectionLabel,
-                  { color: theme.mutedForeground, marginTop: 20 },
-                ]}
-              >
+              <Text style={[styles.sectionLabel, { color: theme.mutedForeground, marginTop: 20 }]}>
                 SELEZIONA OPERATORE
               </Text>
-
               {loadingUsers ? (
-                <View
-                  style={[
-                    styles.loadingUsers,
-                    {
-                      backgroundColor: theme.card,
-                      borderColor: theme.border,
-                    },
-                  ]}
-                >
+                <View style={[styles.loadingUsers, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <ActivityIndicator size="small" color={theme.primary} />
-                  <Text
-                    style={[
-                      styles.loadingUsersText,
-                      { color: theme.mutedForeground },
-                    ]}
-                  >
+                  <Text style={[styles.loadingUsersText, { color: theme.mutedForeground }]}>
                     Caricamento operatori...
                   </Text>
                 </View>
@@ -388,12 +389,8 @@ export default function LoginScreen() {
                         style={[
                           styles.userCard,
                           {
-                            backgroundColor: isSelected
-                              ? theme.primary + "18"
-                              : theme.card,
-                            borderColor: isSelected
-                              ? theme.primary
-                              : theme.border,
+                            backgroundColor: isSelected ? theme.primary + "18" : theme.card,
+                            borderColor: isSelected ? theme.primary : theme.border,
                           },
                         ]}
                         onPress={() => handleSelectUser(user)}
@@ -402,44 +399,21 @@ export default function LoginScreen() {
                         <View
                           style={[
                             styles.userAvatar,
-                            {
-                              backgroundColor: isSelected
-                                ? theme.primary
-                                : theme.primary + "20",
-                            },
+                            { backgroundColor: isSelected ? theme.primary : theme.primary + "20" },
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.userAvatarText,
-                              {
-                                color: isSelected ? "#fff" : theme.primary,
-                              },
-                            ]}
-                          >
+                          <Text style={[styles.userAvatarText, { color: isSelected ? "#fff" : theme.primary }]}>
                             {getUserInitials(user)}
                           </Text>
                         </View>
                         <Text
-                          style={[
-                            styles.userCardName,
-                            {
-                              color: isSelected
-                                ? theme.primary
-                                : theme.foreground,
-                            },
-                          ]}
+                          style={[styles.userCardName, { color: isSelected ? theme.primary : theme.foreground }]}
                           numberOfLines={2}
                         >
                           {getUserFullName(user)}
                         </Text>
                         {isSelected && (
-                          <Feather
-                            name="check-circle"
-                            size={14}
-                            color={theme.primary}
-                            style={styles.userCheckIcon}
-                          />
+                          <Feather name="check-circle" size={14} color={theme.primary} style={styles.userCheckIcon} />
                         )}
                       </TouchableOpacity>
                     );
@@ -449,18 +423,11 @@ export default function LoginScreen() {
             </>
           )}
 
-          {/* PIN field — shown when server reachable or always if no users loaded */}
+          {/* PIN */}
           {(connOk === true || connOk === null) && (
             <>
-              <Text
-                style={[
-                  styles.sectionLabel,
-                  { color: theme.mutedForeground, marginTop: 20 },
-                ]}
-              >
-                {selectedUser
-                  ? `PIN DI ${getUserFullName(selectedUser).toUpperCase()}`
-                  : "PIN ADMIN"}
+              <Text style={[styles.sectionLabel, { color: theme.mutedForeground, marginTop: 20 }]}>
+                {selectedUser ? `PIN DI ${getUserFullName(selectedUser).toUpperCase()}` : "PIN ADMIN"}
               </Text>
 
               <Animated.View
@@ -474,72 +441,36 @@ export default function LoginScreen() {
                 ]}
               >
                 <View style={styles.inputRow}>
-                  <Feather
-                    name="hash"
-                    size={16}
-                    color={theme.mutedForeground}
-                    style={styles.inputIcon}
-                  />
+                  <Feather name="hash" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
                   <TextInput
                     ref={pinRef}
                     style={[styles.input, { color: theme.foreground }]}
                     placeholder="PIN numerico admin"
                     placeholderTextColor={theme.mutedForeground}
                     value={pin}
-                    onChangeText={(t) => {
-                      setPin(t);
-                      clearError();
-                    }}
+                    onChangeText={(t) => { setPin(t); clearError(); }}
                     secureTextEntry={!showPin}
                     keyboardType="number-pad"
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
-                  <TouchableOpacity
-                    onPress={() => setShowPin((v) => !v)}
-                    style={styles.eyeBtn}
-                  >
-                    <Feather
-                      name={showPin ? "eye-off" : "eye"}
-                      size={16}
-                      color={theme.mutedForeground}
-                    />
+                  <TouchableOpacity onPress={() => setShowPin((v) => !v)} style={styles.eyeBtn}>
+                    <Feather name={showPin ? "eye-off" : "eye"} size={16} color={theme.mutedForeground} />
                   </TouchableOpacity>
                 </View>
               </Animated.View>
-
-              {!selectedUser && adminUsers.length === 0 && connOk !== true && (
-                <Text style={[styles.pinHint, { color: theme.mutedForeground }]}>
-                  Verifica prima la connessione al server per caricare gli
-                  operatori.
-                </Text>
-              )}
             </>
           )}
 
           {error && (
-            <View
-              style={[
-                styles.errorBox,
-                {
-                  backgroundColor: theme.destructive + "15",
-                  borderColor: theme.destructive + "40",
-                },
-              ]}
-            >
+            <View style={[styles.errorBox, { backgroundColor: theme.destructive + "15", borderColor: theme.destructive + "40" }]}>
               <Feather name="alert-circle" size={14} color={theme.destructive} />
-              <Text style={[styles.errorText, { color: theme.destructive }]}>
-                {error}
-              </Text>
+              <Text style={[styles.errorText, { color: theme.destructive }]}>{error}</Text>
             </View>
           )}
 
           <TouchableOpacity
-            style={[
-              styles.loginBtn,
-              { backgroundColor: theme.primary },
-              isLoading && { opacity: 0.7 },
-            ]}
+            style={[styles.loginBtn, { backgroundColor: theme.primary }, isLoading && { opacity: 0.7 }]}
             onPress={handleLogin}
             disabled={isLoading}
             activeOpacity={0.8}
@@ -548,7 +479,7 @@ export default function LoginScreen() {
               <ActivityIndicator color="#fff" />
             ) : (
               <>
-                <Text style={styles.loginBtnText}>Accedi</Text>
+                <Text style={styles.loginBtnText}>Accedi con PIN</Text>
                 <Feather name="arrow-right" size={18} color="#fff" />
               </>
             )}
@@ -568,7 +499,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { paddingHorizontal: 24 },
-  header: { alignItems: "center", marginBottom: 36 },
+  header: { alignItems: "center", marginBottom: 28 },
   logoWrapper: {
     width: 90,
     height: 90,
@@ -581,20 +512,39 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-  logoImage: {
-    width: 90,
-    height: 90,
+  logoImage: { width: 90, height: 90 },
+  title: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
+  subtitle: { fontSize: 15, fontFamily: "Inter_400Regular", marginTop: 4 },
+
+  biometricSection: { marginBottom: 8, gap: 16 },
+  biometricBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    height: 66,
+    borderRadius: 16,
   },
-  title: {
-    fontSize: 28,
+  biometricBtnTitle: {
+    color: "#fff",
+    fontSize: 17,
     fontFamily: "Inter_700Bold",
-    letterSpacing: -0.5,
+    letterSpacing: -0.2,
   },
-  subtitle: {
-    fontSize: 15,
+  biometricBtnSub: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
     fontFamily: "Inter_400Regular",
-    marginTop: 4,
+    textAlign: "center",
   },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerText: { fontSize: 13, fontFamily: "Inter_400Regular" },
+
   form: { gap: 8 },
   sectionRow: {
     flexDirection: "row",
@@ -618,15 +568,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  scannerBtnText: {
-    fontSize: 12,
-    fontFamily: "Inter_600SemiBold",
-  },
-  inputGroup: {
-    borderWidth: 1,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
+  scannerBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  inputGroup: { borderWidth: 1, borderRadius: 12, overflow: "hidden" },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -635,11 +578,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   inputIcon: { marginRight: 10 },
-  input: {
-    flex: 1,
-    fontSize: 15,
-    fontFamily: "Inter_400Regular",
-  },
+  input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular" },
   testBtn: {
     width: 32,
     height: 32,
@@ -647,22 +586,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  eyeBtn: {
-    padding: 6,
+  eyeBtn: { padding: 6 },
+  portFixed: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular" },
+  portBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
   },
-  hint: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginLeft: 4,
-    marginTop: 2,
-  },
-  pinHint: {
-    fontSize: 12,
-    fontFamily: "Inter_400Regular",
-    marginLeft: 4,
-    marginTop: 2,
-    lineHeight: 17,
-  },
+  portBadgeText: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  hint: { fontSize: 12, fontFamily: "Inter_400Regular", marginLeft: 4, marginTop: 2 },
   loadingUsers: {
     flexDirection: "row",
     alignItems: "center",
@@ -671,15 +604,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
-  loadingUsersText: {
-    fontSize: 14,
-    fontFamily: "Inter_400Regular",
-  },
-  usersList: {
-    paddingHorizontal: 2,
-    gap: 10,
-    paddingVertical: 2,
-  },
+  loadingUsersText: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  usersList: { paddingHorizontal: 2, gap: 10, paddingVertical: 2 },
   userCard: {
     width: 100,
     borderRadius: 14,
@@ -695,19 +621,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  userAvatarText: {
-    fontSize: 16,
-    fontFamily: "Inter_700Bold",
-  },
+  userAvatarText: { fontSize: 16, fontFamily: "Inter_700Bold" },
   userCardName: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
     textAlign: "center",
     lineHeight: 16,
   },
-  userCheckIcon: {
-    marginTop: -4,
-  },
+  userCheckIcon: { marginTop: -4 },
   errorBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -717,11 +638,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginTop: 4,
   },
-  errorText: {
-    flex: 1,
-    fontSize: 13,
-    fontFamily: "Inter_400Regular",
-  },
+  errorText: { flex: 1, fontSize: 13, fontFamily: "Inter_400Regular" },
   loginBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -731,9 +648,5 @@ const styles = StyleSheet.create({
     marginTop: 16,
     gap: 8,
   },
-  loginBtnText: {
-    color: "#fff",
-    fontSize: 16,
-    fontFamily: "Inter_600SemiBold",
-  },
+  loginBtnText: { color: "#fff", fontSize: 16, fontFamily: "Inter_600SemiBold" },
 });

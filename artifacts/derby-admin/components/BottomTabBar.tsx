@@ -29,6 +29,11 @@ const TABS = [
     label: "Scontrini",
   },
   {
+    href: "/(main)/summary" as const,
+    icon: "bar-chart-2" as const,
+    label: "Riepilogo",
+  },
+  {
     href: "/(main)/messages" as const,
     icon: "printer" as const,
     label: "Messaggi",
@@ -70,7 +75,7 @@ export function BottomTabBar() {
           >
             <Feather
               name={tab.icon}
-              size={22}
+              size={20}
               color={isActive ? theme.primary : theme.mutedForeground}
             />
             <Text
@@ -97,16 +102,16 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: "row",
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingTop: 8,
+    paddingTop: 7,
   },
   tab: {
     flex: 1,
     alignItems: "center",
-    gap: 3,
+    gap: 2,
     paddingVertical: 4,
   },
   label: {
-    fontSize: 11,
-    letterSpacing: 0.2,
+    fontSize: 10,
+    letterSpacing: 0.1,
   },
 });
