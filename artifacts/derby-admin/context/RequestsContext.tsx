@@ -12,6 +12,7 @@ import {
   getPendingRequests,
   resolveRequest,
 } from "@/services/derbyApi";
+import { saveAuthHistoryItem } from "@/services/authHistory";
 import { notifyNewAuthRequest } from "@/services/notifications";
 
 interface RequestsState {
@@ -103,24 +104,32 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
   }, [detectAndNotify]);
 
   const approve = useCallback(async (id: string, adminName?: string) => {
+    const req = state.requests.find((r) => r.id === id);
     await resolveRequest(id, true, adminName);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     knownIds.current.delete(id);
+    if (req) {
+      saveAuthHistoryItem(req, "approved", adminName ?? null).catch(() => {});
+    }
     setState((s) => ({
       ...s,
       requests: s.requests.filter((r) => r.id !== id),
     }));
-  }, []);
+  }, [state.requests]);
 
   const deny = useCallback(async (id: string, adminName?: string) => {
+    const req = state.requests.find((r) => r.id === id);
     await resolveRequest(id, false, adminName);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     knownIds.current.delete(id);
+    if (req) {
+      saveAuthHistoryItem(req, "denied", adminName ?? null).catch(() => {});
+    }
     setState((s) => ({
       ...s,
       requests: s.requests.filter((r) => r.id !== id),
     }));
-  }, []);
+  }, [state.requests]);
 
   const getRequest = useCallback(
     (id: string) => state.requests.find((r) => r.id === id),

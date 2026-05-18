@@ -1,11 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -23,6 +23,11 @@ import {
   getPrinterGroups,
   sendPrinterMessage,
 } from "@/services/derbyApi";
+import {
+  MessageHistoryItem,
+  loadMessageHistory,
+  saveMessageHistoryItem,
+} from "@/services/messageHistory";
 
 const QUICK_MESSAGES = [
   "Attenzione: chiusura imminente",
@@ -31,6 +36,19 @@ const QUICK_MESSAGES = [
   "Terminato ingrediente",
   "Urgente: venire in cassa",
 ];
+
+function formatTime(ts: number): string {
+  try {
+    return new Date(ts).toLocaleString("it-IT", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
 
 export default function MessagesScreen() {
   const insets = useSafeAreaInsets();
@@ -45,6 +63,8 @@ export default function MessagesScreen() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [history, setHistory] = useState<MessageHistoryItem[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   const topPadding =
@@ -55,6 +75,12 @@ export default function MessagesScreen() {
       .then((g) => setGroups(g))
       .catch(() => {})
       .finally(() => setLoadingGroups(false));
+    loadMessageHistory().then(setHistory).catch(() => {});
+  }, []);
+
+  const reloadHistory = useCallback(async () => {
+    const data = await loadMessageHistory();
+    setHistory(data);
   }, []);
 
   const toggleGroup = (pgId: string) => {
@@ -85,6 +111,24 @@ export default function MessagesScreen() {
         selectedGroupIds.length > 0 ? selectedGroupIds : undefined;
       await sendPrinterMessage(text, pgIds, adminName ?? "Admin");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+      // Save to history
+      const destinations =
+        pgIds && pgIds.length > 0
+          ? groups
+              .filter((g) => pgIds.includes(g.pgId))
+              .map((g) => g.pgName)
+          : groups.map((g) => g.pgName).length > 0
+          ? groups.map((g) => g.pgName)
+          : ["Tutte le stampanti"];
+      await saveMessageHistoryItem({
+        message: text,
+        sentAt: Date.now(),
+        sentBy: adminName ?? "Admin",
+        destinations,
+      });
+      await reloadHistory();
+
       setSent(true);
       setMessage("");
       setTimeout(() => setSent(false), 3000);
@@ -111,16 +155,12 @@ export default function MessagesScreen() {
         <Text style={[styles.headerTitle, { color: theme.foreground }]}>
           Messaggi Stampanti
         </Text>
-        <Text
-          style={[styles.headerSubtitle, { color: theme.mutedForeground }]}
-        >
+        <Text style={[styles.headerSubtitle, { color: theme.mutedForeground }]}>
           Invia un messaggio alle stampanti del locale
         </Text>
 
         {/* Destination */}
-        <Text
-          style={[styles.sectionLabel, { color: theme.mutedForeground }]}
-        >
+        <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
           DESTINATARIO
         </Text>
         <View
@@ -132,34 +172,19 @@ export default function MessagesScreen() {
           {loadingGroups ? (
             <View style={styles.loadingRow}>
               <ActivityIndicator size="small" color={theme.primary} />
-              <Text
-                style={[
-                  styles.loadingText,
-                  { color: theme.mutedForeground },
-                ]}
-              >
+              <Text style={[styles.loadingText, { color: theme.mutedForeground }]}>
                 Caricamento stampanti...
               </Text>
             </View>
           ) : groups.length === 0 ? (
             <View style={styles.loadingRow}>
-              <Feather
-                name="printer"
-                size={16}
-                color={theme.mutedForeground}
-              />
-              <Text
-                style={[
-                  styles.loadingText,
-                  { color: theme.mutedForeground },
-                ]}
-              >
+              <Feather name="printer" size={16} color={theme.mutedForeground} />
+              <Text style={[styles.loadingText, { color: theme.mutedForeground }]}>
                 Tutte le stampanti configurate
               </Text>
             </View>
           ) : (
             <>
-              {/* Tutti */}
               <TouchableOpacity
                 style={[
                   styles.groupRow,
@@ -190,9 +215,7 @@ export default function MessagesScreen() {
                     <Feather name="check" size={12} color="#fff" />
                   )}
                 </View>
-                <Text
-                  style={[styles.groupName, { color: theme.foreground }]}
-                >
+                <Text style={[styles.groupName, { color: theme.foreground }]}>
                   Tutte le stampanti
                 </Text>
               </TouchableOpacity>
@@ -217,9 +240,7 @@ export default function MessagesScreen() {
                       style={[
                         styles.checkbox,
                         {
-                          borderColor: isSelected
-                            ? theme.primary
-                            : theme.border,
+                          borderColor: isSelected ? theme.primary : theme.border,
                           backgroundColor: isSelected
                             ? theme.primary
                             : "transparent",
@@ -233,9 +254,7 @@ export default function MessagesScreen() {
                     <Feather
                       name="printer"
                       size={15}
-                      color={
-                        isSelected ? theme.primary : theme.mutedForeground
-                      }
+                      color={isSelected ? theme.primary : theme.mutedForeground}
                     />
                     <Text
                       style={[
@@ -257,29 +276,24 @@ export default function MessagesScreen() {
         </View>
 
         {/* Quick messages */}
-        <Text
-          style={[styles.sectionLabel, { color: theme.mutedForeground }]}
-        >
+        <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
           MESSAGGI RAPIDI
         </Text>
-        <ScrollView
+        <FlatList
           horizontal
+          data={QUICK_MESSAGES}
+          keyExtractor={(item) => item}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.quickList}
           keyboardShouldPersistTaps="handled"
-        >
-          {QUICK_MESSAGES.map((qm) => (
+          renderItem={({ item: qm }) => (
             <TouchableOpacity
-              key={qm}
               style={[
                 styles.quickChip,
                 {
                   backgroundColor:
-                    message === qm
-                      ? theme.primary + "20"
-                      : theme.card,
-                  borderColor:
-                    message === qm ? theme.primary : theme.border,
+                    message === qm ? theme.primary + "20" : theme.card,
+                  borderColor: message === qm ? theme.primary : theme.border,
                 },
               ]}
               onPress={() => {
@@ -292,22 +306,17 @@ export default function MessagesScreen() {
               <Text
                 style={[
                   styles.quickChipText,
-                  {
-                    color:
-                      message === qm ? theme.primary : theme.foreground,
-                  },
+                  { color: message === qm ? theme.primary : theme.foreground },
                 ]}
               >
                 {qm}
               </Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
+          )}
+        />
 
         {/* Message input */}
-        <Text
-          style={[styles.sectionLabel, { color: theme.mutedForeground }]}
-        >
+        <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
           MESSAGGIO
         </Text>
         <View
@@ -332,11 +341,7 @@ export default function MessagesScreen() {
               style={styles.clearBtn}
               onPress={() => setMessage("")}
             >
-              <Feather
-                name="x-circle"
-                size={16}
-                color={theme.mutedForeground}
-              />
+              <Feather name="x-circle" size={16} color={theme.mutedForeground} />
             </TouchableOpacity>
           )}
         </View>
@@ -346,9 +351,7 @@ export default function MessagesScreen() {
           style={[
             styles.sendBtn,
             {
-              backgroundColor: sent
-                ? theme.success
-                : theme.primary,
+              backgroundColor: sent ? theme.success : theme.primary,
               opacity: sending ? 0.7 : 1,
             },
           ]}
@@ -375,12 +378,82 @@ export default function MessagesScreen() {
           )}
         </TouchableOpacity>
 
-        {/* Sender info */}
-        <Text
-          style={[styles.senderNote, { color: theme.mutedForeground }]}
-        >
+        <Text style={[styles.senderNote, { color: theme.mutedForeground }]}>
           Mittente: {adminName ?? "Admin"}
         </Text>
+
+        {/* Message history */}
+        {history.length > 0 && (
+          <>
+            <TouchableOpacity
+              style={styles.historyToggle}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setShowHistory((v) => !v);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[styles.sectionLabel, { color: theme.mutedForeground, marginTop: 0, marginBottom: 0 }]}
+              >
+                MESSAGGI INVIATI ({history.length})
+              </Text>
+              <Feather
+                name={showHistory ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={theme.mutedForeground}
+              />
+            </TouchableOpacity>
+
+            {showHistory &&
+              history.slice(0, 20).map((item) => (
+                <TouchableOpacity
+                  key={item.id}
+                  style={[
+                    styles.historyCard,
+                    { backgroundColor: theme.card, borderColor: theme.border },
+                  ]}
+                  onPress={() => {
+                    Haptics.selectionAsync();
+                    setMessage(item.message);
+                    setTimeout(() => inputRef.current?.focus(), 100);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[styles.historyMsg, { color: theme.foreground }]}
+                    numberOfLines={2}
+                  >
+                    {item.message}
+                  </Text>
+                  <View style={styles.historyMeta}>
+                    <Text
+                      style={[styles.historyTime, { color: theme.mutedForeground }]}
+                    >
+                      {formatTime(item.sentAt)}
+                    </Text>
+                    {item.destinations.length > 0 && (
+                      <Text
+                        style={[
+                          styles.historyDest,
+                          { color: theme.mutedForeground },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        <Feather name="printer" size={10} /> {item.destinations.join(", ")}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={styles.reuseRow}>
+                    <Feather name="rotate-ccw" size={11} color={theme.primary} />
+                    <Text style={[styles.reuseText, { color: theme.primary }]}>
+                      Riusa
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+          </>
+        )}
       </KeyboardAwareScrollView>
       <BottomTabBar />
     </View>
@@ -496,5 +569,47 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     textAlign: "center",
     marginBottom: 4,
+  },
+  historyToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginTop: 8,
+  },
+  historyCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 6,
+  },
+  historyMsg: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    lineHeight: 20,
+  },
+  historyMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  historyTime: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+  },
+  historyDest: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+  },
+  reuseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  reuseText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
   },
 });

@@ -211,37 +211,57 @@ export interface DailySummaryResponse {
 export async function getDailyReceipts(
   date?: string
 ): Promise<DailySummaryResponse> {
-  const dateStr =
-    date ?? new Date().toISOString().slice(0, 10);
+  const dateStr = date ?? new Date().toISOString().slice(0, 10);
+
+  // Real response shape: { operators: [{ firstName, lastName, tickets: [{ticketId, ...}] }], totals }
   const res = await apiRequest<{
-    tickets?: Array<Record<string, unknown>>;
-    totalRevenue?: number;
-    ticketCount?: number;
-    byUser?: unknown;
-    statusBreakdown?: unknown;
+    operators?: Array<{
+      firstName?: string;
+      lastName?: string;
+      tickets?: Array<Record<string, unknown>>;
+    }>;
+    totals?: { total?: number; receiptCount?: number };
   }>(`/reports/daily-summary?date=${dateStr}`);
 
-  const raw = Array.isArray(res.tickets) ? res.tickets : [];
-  const tickets: DailyReceipt[] = raw.map((r) => ({
-    id: String(r.id ?? r.ticketId ?? ""),
-    shortId: r.shortId != null ? String(r.shortId) : null,
-    tokenNo: r.tokenNo != null ? String(r.tokenNo) : null,
-    tableNum: r.tableNum != null ? String(r.tableNum) : null,
-    status: String(r.status ?? ""),
-    total: Number(r.total ?? r.totalPrice ?? 0),
-    closingDate: r.closingDate != null ? String(r.closingDate) : null,
-    server: r.server != null ? String(r.server) : null,
-    cashAmount: Number(r.cashAmount ?? 0),
-    cardAmount: Number(r.cardAmount ?? 0),
-    gcAmount: Number(r.gcAmount ?? 0),
-    voidedCount: Number(r.voidedCount ?? 0),
-    voidedAmount: Number(r.voidedAmount ?? 0),
-  }));
+  const operators = Array.isArray(res.operators) ? res.operators : [];
+  const tickets: DailyReceipt[] = [];
+
+  for (const op of operators) {
+    const serverName =
+      [op.firstName, op.lastName].filter(Boolean).join(" ").trim() || null;
+    for (const r of Array.isArray(op.tickets) ? op.tickets : []) {
+      tickets.push({
+        id: String(r.ticketId ?? r.id ?? ""),
+        shortId: r.shortId != null && String(r.shortId) !== "" ? String(r.shortId) : null,
+        tokenNo: r.tokenNo != null && String(r.tokenNo) !== "" ? String(r.tokenNo) : null,
+        tableNum: r.tableNum != null && String(r.tableNum) !== "" ? String(r.tableNum) : null,
+        status: String(r.status ?? "closed"),
+        total: Number(r.total ?? r.totalPrice ?? 0),
+        closingDate: r.closingDate != null ? String(r.closingDate) : null,
+        server: serverName,
+        cashAmount: Number(r.cashAmount ?? 0),
+        cardAmount: Number(r.cardAmount ?? 0),
+        gcAmount: Number(r.gcAmount ?? 0),
+        voidedCount: Number(r.voidedCount ?? 0),
+        voidedAmount: Number(r.voidedAmount ?? 0),
+      });
+    }
+  }
+
+  // Sort by closingDate desc (server already sorts DESC but we flatten operators)
+  tickets.sort((a, b) => {
+    if (!a.closingDate && !b.closingDate) return 0;
+    if (!a.closingDate) return 1;
+    if (!b.closingDate) return -1;
+    return b.closingDate.localeCompare(a.closingDate);
+  });
+
+  const totalRevenue = Number(res.totals?.total ?? 0);
 
   return {
     tickets,
-    totalRevenue: Number(res.totalRevenue ?? 0),
-    ticketCount: Number(res.ticketCount ?? tickets.length),
+    totalRevenue,
+    ticketCount: res.totals?.receiptCount ?? tickets.length,
   };
 }
 

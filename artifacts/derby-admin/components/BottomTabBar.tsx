@@ -19,6 +19,11 @@ const TABS = [
     label: "Richieste",
   },
   {
+    href: "/(main)/history" as const,
+    icon: "clock" as const,
+    label: "Storico",
+  },
+  {
     href: "/(main)/receipts" as const,
     icon: "file-text" as const,
     label: "Scontrini",
