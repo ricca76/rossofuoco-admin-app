@@ -184,6 +184,172 @@ export async function resolveRequest(
   });
 }
 
+// ── Receipts ──────────────────────────────────────────────────────────────────
+
+export interface DailyReceipt {
+  id: string;
+  shortId: string | null;
+  tokenNo: string | null;
+  tableNum: string | null;
+  status: string;
+  total: number;
+  closingDate: string | null;
+  server: string | null;
+  cashAmount: number;
+  cardAmount: number;
+  gcAmount: number;
+  voidedCount: number;
+  voidedAmount: number;
+}
+
+export interface DailySummaryResponse {
+  tickets: DailyReceipt[];
+  totalRevenue: number;
+  ticketCount: number;
+}
+
+export async function getDailyReceipts(
+  date?: string
+): Promise<DailySummaryResponse> {
+  const dateStr =
+    date ?? new Date().toISOString().slice(0, 10);
+  const res = await apiRequest<{
+    tickets?: Array<Record<string, unknown>>;
+    totalRevenue?: number;
+    ticketCount?: number;
+    byUser?: unknown;
+    statusBreakdown?: unknown;
+  }>(`/reports/daily-summary?date=${dateStr}`);
+
+  const raw = Array.isArray(res.tickets) ? res.tickets : [];
+  const tickets: DailyReceipt[] = raw.map((r) => ({
+    id: String(r.id ?? r.ticketId ?? ""),
+    shortId: r.shortId != null ? String(r.shortId) : null,
+    tokenNo: r.tokenNo != null ? String(r.tokenNo) : null,
+    tableNum: r.tableNum != null ? String(r.tableNum) : null,
+    status: String(r.status ?? ""),
+    total: Number(r.total ?? r.totalPrice ?? 0),
+    closingDate: r.closingDate != null ? String(r.closingDate) : null,
+    server: r.server != null ? String(r.server) : null,
+    cashAmount: Number(r.cashAmount ?? 0),
+    cardAmount: Number(r.cardAmount ?? 0),
+    gcAmount: Number(r.gcAmount ?? 0),
+    voidedCount: Number(r.voidedCount ?? 0),
+    voidedAmount: Number(r.voidedAmount ?? 0),
+  }));
+
+  return {
+    tickets,
+    totalRevenue: Number(res.totalRevenue ?? 0),
+    ticketCount: Number(res.ticketCount ?? tickets.length),
+  };
+}
+
+export interface TicketItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  voided: boolean;
+  notes: string | null;
+  courseName: string | null;
+  isSeparator: boolean;
+}
+
+export interface TicketDetail {
+  id: string;
+  shortId: string | null;
+  tokenNo: string | null;
+  tableNum: string | null;
+  status: string;
+  total: number;
+  paid: number;
+  guests: number | null;
+  createDate: string | null;
+  server: string | null;
+  items: TicketItem[];
+  ticketNote: string | null;
+  isAsporto: boolean;
+}
+
+export async function getTicketDetail(id: string): Promise<TicketDetail> {
+  const res = await apiRequest<{
+    ticket: Record<string, unknown>;
+    items?: Array<Record<string, unknown>>;
+    ticketNote?: string | null;
+    isAsporto?: boolean;
+  }>(`/pos/ticket/${encodeURIComponent(id)}`);
+
+  const t = res.ticket ?? {};
+  const rawItems = Array.isArray(res.items) ? res.items : [];
+
+  const items: TicketItem[] = rawItems.map((i) => ({
+    id: String(i.id ?? i.itemId ?? ""),
+    name: String(i.name ?? ""),
+    quantity: Number(i.quantity ?? 1),
+    unitPrice: Number(i.unitPrice ?? i.unit_price ?? 0),
+    total: Number(i.total ?? i.totalPrice ?? 0),
+    voided: i.voided === true || i.isVoided === "Y",
+    notes: i.notes != null ? String(i.notes) : null,
+    courseName: i.courseName != null ? String(i.courseName) : null,
+    isSeparator: Boolean(i.isSeparator),
+  }));
+
+  return {
+    id: String(t.id ?? ""),
+    shortId: t.shortId != null ? String(t.shortId) : null,
+    tokenNo: t.tokenNo != null ? String(t.tokenNo) : null,
+    tableNum: t.tableNum != null ? String(t.tableNum) : null,
+    status: String(t.status ?? ""),
+    total: Number(t.total ?? 0),
+    paid: Number(t.paid ?? 0),
+    guests: t.guests != null ? Number(t.guests) : null,
+    createDate: t.createDate != null ? String(t.createDate) : null,
+    server: t.server != null ? String(t.server) : null,
+    items,
+    ticketNote: res.ticketNote ?? null,
+    isAsporto: Boolean(res.isAsporto),
+  };
+}
+
+export async function reprintTicket(
+  id: string,
+  pgId?: string
+): Promise<void> {
+  await apiRequest<{ ok?: boolean }>(
+    `/pos/ticket/${encodeURIComponent(id)}/print`,
+    "POST",
+    pgId ? { pgId } : {}
+  );
+}
+
+// ── Printer messages ──────────────────────────────────────────────────────────
+
+export interface PrinterGroup {
+  pgId: string;
+  pgName: string;
+}
+
+export async function getPrinterGroups(): Promise<PrinterGroup[]> {
+  const res = await apiRequest<{ groups: PrinterGroup[] }>("/pos/printer-groups");
+  return Array.isArray(res.groups) ? res.groups : [];
+}
+
+export async function sendPrinterMessage(
+  message: string,
+  pgIds?: string[],
+  fromNm?: string
+): Promise<void> {
+  await apiRequest<{ ok: boolean }>("/pos/print-message", "POST", {
+    message,
+    pgIds: pgIds && pgIds.length > 0 ? pgIds : undefined,
+    fromNm: fromNm ?? undefined,
+  });
+}
+
+// ── Connection test ───────────────────────────────────────────────────────────
+
 export async function testConnection(config: ServerConfig): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);

@@ -14,6 +14,7 @@ import {
   useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BottomTabBar } from "@/components/BottomTabBar";
 import { RequestCard } from "@/components/RequestCard";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
@@ -150,34 +151,38 @@ export default function RequestsScreen() {
   );
 
   return (
-    <FlatList<AuthRequest>
-      style={{ backgroundColor: theme.background }}
-      data={requests}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <RequestCard request={item} onPress={() => handlePress(item)} />
-      )}
-      ListHeaderComponent={ListHeader}
-      ListEmptyComponent={ListEmpty}
-      contentContainerStyle={[
-        styles.list,
-        { paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 20) },
-      ]}
-      refreshControl={
-        <RefreshControl
-          refreshing={isRefreshing}
-          onRefresh={refresh}
-          tintColor={theme.primary}
-          colors={[theme.primary]}
-        />
-      }
-      scrollEnabled={!isLoading || requests.length > 0}
-      showsVerticalScrollIndicator={false}
-    />
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
+      <FlatList<AuthRequest>
+        style={{ flex: 1 }}
+        data={requests}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <RequestCard request={item} onPress={() => handlePress(item)} />
+        )}
+        ListHeaderComponent={ListHeader}
+        ListEmptyComponent={ListEmpty}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: 8 },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={refresh}
+            tintColor={theme.primary}
+            colors={[theme.primary]}
+          />
+        }
+        scrollEnabled={!isLoading || requests.length > 0}
+        showsVerticalScrollIndicator={false}
+      />
+      <BottomTabBar />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1 },
   list: { flexGrow: 1 },
   header: {
     paddingHorizontal: 16,

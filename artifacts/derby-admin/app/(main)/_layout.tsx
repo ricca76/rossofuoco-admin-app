@@ -24,10 +24,19 @@ export default function MainLayout() {
         }}
       >
         <Stack.Screen name="requests" options={{ headerShown: false }} />
+        <Stack.Screen name="receipts" options={{ headerShown: false }} />
+        <Stack.Screen name="messages" options={{ headerShown: false }} />
         <Stack.Screen
           name="request/[id]"
           options={{
             title: "Dettaglio Richiesta",
+            presentation: "card",
+          }}
+        />
+        <Stack.Screen
+          name="receipt/[id]"
+          options={{
+            headerShown: false,
             presentation: "card",
           }}
         />
