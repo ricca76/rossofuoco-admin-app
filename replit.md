@@ -2,6 +2,13 @@
 
 App iPhone per connettersi a Rosso Fuoco Console (Derby Server Connect) come admin e autorizzare tutte le richieste che necessitano di autorizzazione.
 
+## iOS Publishing
+
+- Bundle identifier: `com.rossofuoco.admin`
+- Build number: `1` (incrementare ad ogni aggiornamento in app.json → ios.buildNumber)
+- Per pubblicare: clicca **Publish** in Replit (Expo Launch) — richiede Apple Developer account ($99/anno)
+- Permessi configurati: Face ID (`NSFaceIDUsageDescription`), Notifiche push
+
 ## Run & Operate
 
 - `pnpm --filter @workspace/derby-admin run dev` — avvia l'app Expo (mobile)

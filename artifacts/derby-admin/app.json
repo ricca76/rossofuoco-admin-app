@@ -11,12 +11,20 @@
     "splash": {
       "image": "./assets/images/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#1C2333"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.rossofuoco.admin",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Rosso Admin usa Face ID per autorizzare l'accesso come amministratore senza dover reinserire il PIN.",
+        "UIBackgroundModes": ["remote-notification"]
+      }
     },
-    "android": {},
+    "android": {
+      "package": "com.rossofuoco.admin"
+    },
     "web": {
       "favicon": "./assets/images/icon.png"
     },
@@ -28,7 +36,21 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Rosso Admin usa Face ID per autorizzare l'accesso come amministratore senza dover reinserire il PIN."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#C0392B",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
