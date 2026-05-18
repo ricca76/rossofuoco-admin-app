@@ -9,24 +9,35 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
   useColorScheme,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
+import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
 
 const TYPE_LABELS: Record<string, string> = {
+  void_item: "Annullamento articolo",
+  void_ticket: "Annullamento conto",
   discount: "Sconto",
   refund: "Rimborso",
-  void: "Annullamento",
   override: "Override",
   access: "Accesso",
   price_change: "Modifica Prezzo",
   payment: "Pagamento",
+  reopen: "Riapertura conto",
+  delete: "Eliminazione",
 };
+
+function formatPayloadKey(key: string): string {
+  return key
+    .replace(/_/g, " ")
+    .replace(/([A-Z])/g, " $1")
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
 
 export default function RequestDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -35,9 +46,9 @@ export default function RequestDetailScreen() {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
   const { getRequest, approve, deny } = useRequests();
+  const { adminName } = useAuth();
 
   const request = getRequest(id ?? "");
-  const [note, setNote] = useState("");
   const [approving, setApproving] = useState(false);
   const [denying, setDenying] = useState(false);
 
@@ -45,7 +56,7 @@ export default function RequestDetailScreen() {
     if (!request) return;
     setApproving(true);
     try {
-      await approve(request.id, note);
+      await approve(request.id, adminName ?? undefined);
       router.back();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Errore";
@@ -54,7 +65,7 @@ export default function RequestDetailScreen() {
     } finally {
       setApproving(false);
     }
-  }, [request, note, approve]);
+  }, [request, approve, adminName]);
 
   const handleDeny = useCallback(async () => {
     if (!request) return;
@@ -69,7 +80,7 @@ export default function RequestDetailScreen() {
           onPress: async () => {
             setDenying(true);
             try {
-              await deny(request.id, note);
+              await deny(request.id, adminName ?? undefined);
               router.back();
             } catch (err: unknown) {
               const msg = err instanceof Error ? err.message : "Errore";
@@ -81,7 +92,7 @@ export default function RequestDetailScreen() {
         },
       ]
     );
-  }, [request, note, deny]);
+  }, [request, deny, adminName]);
 
   const bottomPadding =
     insets.bottom + (Platform.OS === "web" ? 34 : 24);
@@ -98,9 +109,10 @@ export default function RequestDetailScreen() {
   }
 
   const typeLabel = TYPE_LABELS[request.type] ?? request.type;
+
   const formattedTime = (() => {
     try {
-      return new Date(request.timestamp).toLocaleString("it-IT", {
+      return new Date(request.createdAt).toLocaleString("it-IT", {
         day: "2-digit",
         month: "2-digit",
         year: "numeric",
@@ -108,9 +120,18 @@ export default function RequestDetailScreen() {
         minute: "2-digit",
       });
     } catch {
-      return request.timestamp;
+      return String(request.createdAt);
     }
   })();
+
+  const payloadEntries = Object.entries(request.payload ?? {}).filter(
+    ([, v]) => v != null && String(v).trim() !== ""
+  );
+
+  const amount =
+    request.payload?.amount ??
+    request.payload?.total ??
+    request.payload?.price;
 
   return (
     <ScrollView
@@ -128,37 +149,38 @@ export default function RequestDetailScreen() {
         {request.description}
       </Text>
 
-      {request.amount != null && (
+      {amount != null && (
         <View style={[styles.amountBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.amountLabel, { color: theme.mutedForeground }]}>
             Importo
           </Text>
           <Text style={[styles.amountValue, { color: theme.primary }]}>
-            € {request.amount.toFixed(2)}
+            € {Number(amount).toFixed(2)}
           </Text>
         </View>
       )}
 
       <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <InfoRow icon="user" label="Operatore" value={request.operator} theme={theme} />
-        {request.table && (
-          <InfoRow icon="grid" label="Tavolo" value={request.table} theme={theme} />
+        <InfoRow icon="user" label="Operatore" value={request.operatorName} theme={theme} />
+        {request.tableNum && (
+          <InfoRow icon="grid" label="Tavolo" value={request.tableNum} theme={theme} />
         )}
+        <InfoRow icon="hash" label="Conto" value={request.ticketId} theme={theme} />
         <InfoRow icon="clock" label="Orario" value={formattedTime} theme={theme} />
-        <InfoRow icon="hash" label="ID" value={request.id} theme={theme} isLast />
+        <InfoRow icon="tag" label="ID" value={request.id.slice(0, 8) + "…"} theme={theme} isLast />
       </View>
 
-      {request.details && Object.keys(request.details).length > 0 && (
+      {payloadEntries.length > 0 && (
         <>
           <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
             DETTAGLI
           </Text>
           <View style={[styles.infoCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            {Object.entries(request.details).map(([key, val], i, arr) => (
+            {payloadEntries.map(([key, val], i, arr) => (
               <InfoRow
                 key={key}
                 icon="info"
-                label={key}
+                label={formatPayloadKey(key)}
                 value={String(val)}
                 theme={theme}
                 isLast={i === arr.length - 1}
@@ -167,22 +189,6 @@ export default function RequestDetailScreen() {
           </View>
         </>
       )}
-
-      <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
-        NOTA (OPZIONALE)
-      </Text>
-      <View style={[styles.noteBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <TextInput
-          style={[styles.noteInput, { color: theme.foreground }]}
-          placeholder="Aggiungi una nota..."
-          placeholderTextColor={theme.mutedForeground}
-          multiline
-          numberOfLines={3}
-          value={note}
-          onChangeText={setNote}
-          textAlignVertical="top"
-        />
-      </View>
 
       <View style={styles.actions}>
         <TouchableOpacity
@@ -318,13 +324,6 @@ const styles = StyleSheet.create({
   infoIcon: {},
   infoLabel: { fontSize: 13, fontFamily: "Inter_400Regular", width: 90 },
   infoValue: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", textAlign: "right" },
-  noteBox: {
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    minHeight: 90,
-  },
-  noteInput: { fontSize: 14, fontFamily: "Inter_400Regular", lineHeight: 20 },
   actions: {
     flexDirection: "row",
     gap: 12,

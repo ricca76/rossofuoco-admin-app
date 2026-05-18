@@ -24,10 +24,10 @@ export default function SettingsScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
-  const { serverConfig, saveServerConfig, signOut, username } = useAuth();
+  const { serverConfig, saveServerConfig, signOut, adminName } = useAuth();
 
   const [ip, setIp] = useState(serverConfig?.ip ?? "");
-  const [port, setPort] = useState(String(serverConfig?.port ?? "8080"));
+  const [port, setPort] = useState(String(serverConfig?.port ?? "51521"));
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connStatus, setConnStatus] = useState<"ok" | "fail" | null>(null);
@@ -35,7 +35,7 @@ export default function SettingsScreen() {
   const handleTest = async () => {
     setTesting(true);
     setConnStatus(null);
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 8080 };
+    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
     const ok = await testConnection(config);
     setConnStatus(ok ? "ok" : "fail");
     setTesting(false);
@@ -52,7 +52,7 @@ export default function SettingsScreen() {
       return;
     }
     setSaving(true);
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 8080 };
+    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
     await saveServerConfig(config);
     setSaving(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -91,10 +91,10 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.accountInfo}>
             <Text style={[styles.accountName, { color: theme.foreground }]}>
-              {username ?? "Admin"}
+              {adminName ?? "Amministratore"}
             </Text>
             <Text style={[styles.accountRole, { color: theme.mutedForeground }]}>
-              Amministratore
+              Amministratore · Rosso Fuoco
             </Text>
           </View>
         </View>
@@ -130,13 +130,17 @@ export default function SettingsScreen() {
             style={[styles.inputValue, { color: theme.foreground }]}
             value={port}
             onChangeText={(t) => { setPort(t); setConnStatus(null); }}
-            placeholder="8080"
+            placeholder="51521"
             placeholderTextColor={theme.mutedForeground}
             keyboardType="number-pad"
             textAlign="right"
           />
         </View>
       </View>
+
+      <Text style={[styles.portHint, { color: theme.mutedForeground }]}>
+        Porta default Rosso Fuoco Console: 51521
+      </Text>
 
       {connStatus && (
         <View
@@ -213,7 +217,7 @@ export default function SettingsScreen() {
       </TouchableOpacity>
 
       <Text style={[styles.version, { color: theme.mutedForeground }]}>
-        Derby Admin v1.0 · Derby Server Connect
+        Derby Admin v1.0 · Rosso Fuoco Console
       </Text>
     </ScrollView>
   );
@@ -260,6 +264,12 @@ const styles = StyleSheet.create({
   inputIcon: { marginRight: 10 },
   inputLabel: { fontSize: 14, fontFamily: "Inter_500Medium", flex: 1 },
   inputValue: { fontSize: 14, fontFamily: "Inter_400Regular", flex: 1 },
+  portHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginLeft: 4,
+    marginTop: -4,
+  },
   statusBanner: {
     flexDirection: "row",
     alignItems: "center",

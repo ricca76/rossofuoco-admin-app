@@ -3,14 +3,12 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useRef,
   useState,
 } from "react";
 import {
   AuthRequest,
-  approveRequest,
-  denyRequest,
   getPendingRequests,
+  resolveRequest,
 } from "@/services/derbyApi";
 
 interface RequestsState {
@@ -24,8 +22,8 @@ interface RequestsState {
 interface RequestsContextValue extends RequestsState {
   fetchRequests: () => Promise<void>;
   refresh: () => Promise<void>;
-  approve: (id: string, note?: string) => Promise<void>;
-  deny: (id: string, note?: string) => Promise<void>;
+  approve: (id: string, adminName?: string) => Promise<void>;
+  deny: (id: string, adminName?: string) => Promise<void>;
   getRequest: (id: string) => AuthRequest | undefined;
 }
 
@@ -72,8 +70,8 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const approve = useCallback(async (id: string, note?: string) => {
-    await approveRequest(id, note);
+  const approve = useCallback(async (id: string, adminName?: string) => {
+    await resolveRequest(id, true, adminName);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setState((s) => ({
       ...s,
@@ -81,8 +79,8 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const deny = useCallback(async (id: string, note?: string) => {
-    await denyRequest(id, note);
+  const deny = useCallback(async (id: string, adminName?: string) => {
+    await resolveRequest(id, false, adminName);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     setState((s) => ({
       ...s,
@@ -109,4 +107,3 @@ export function useRequests() {
   if (!ctx) throw new Error("useRequests must be used within RequestsProvider");
   return ctx;
 }
-

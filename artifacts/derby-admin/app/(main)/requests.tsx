@@ -18,20 +18,29 @@ import { RequestCard } from "@/components/RequestCard";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
-import { AuthRequest } from "@/services/derbyApi";
+import { AuthRequest, subscribeToEvents } from "@/services/derbyApi";
 
 export default function RequestsScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
-  const { username, signOut } = useAuth();
+  const { adminName, signOut } = useAuth();
   const { requests, isLoading, isRefreshing, error, lastUpdated, fetchRequests, refresh } = useRequests();
 
   useEffect(() => {
     fetchRequests();
     const interval = setInterval(fetchRequests, 15000);
     return () => clearInterval(interval);
+  }, [fetchRequests]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToEvents((type) => {
+      if (type === "auth_request_created" || type === "auth_request_resolved") {
+        fetchRequests();
+      }
+    });
+    return unsubscribe;
   }, [fetchRequests]);
 
   const handlePress = useCallback((item: AuthRequest) => {
@@ -84,8 +93,8 @@ export default function RequestsScreen() {
         </View>
         <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
         <View style={styles.statItem}>
-          <Text style={[styles.statValue, { color: theme.foreground }]}>
-            {username ?? "Admin"}
+          <Text style={[styles.statValue, { color: theme.foreground }]} numberOfLines={1}>
+            {adminName ?? "Admin"}
           </Text>
           <Text style={[styles.statLabel, { color: theme.mutedForeground }]}>
             Operatore

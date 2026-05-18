@@ -9,19 +9,16 @@ import React, {
 import {
   AdminCredentials,
   ServerConfig,
-  clearToken,
   configureApi,
   login,
-  logout,
-  setToken,
 } from "@/services/derbyApi";
 
 interface AuthState {
   isConnected: boolean;
   isLoading: boolean;
   serverConfig: ServerConfig | null;
-  username: string | null;
-  token: string | null;
+  adminName: string | null;
+  userId: number | null;
   error: string | null;
 }
 
@@ -36,8 +33,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const STORAGE_KEYS = {
   SERVER_CONFIG: "@derby_server_config",
-  TOKEN: "@derby_token",
-  USERNAME: "@derby_username",
+  ADMIN_NAME: "@derby_admin_name",
+  USER_ID: "@derby_user_id",
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -45,30 +42,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isConnected: false,
     isLoading: true,
     serverConfig: null,
-    username: null,
-    token: null,
+    adminName: null,
+    userId: null,
     error: null,
   });
 
   useEffect(() => {
     (async () => {
       try {
-        const [configStr, token, username] = await Promise.all([
+        const [configStr, adminName, userIdStr] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG),
-          AsyncStorage.getItem(STORAGE_KEYS.TOKEN),
-          AsyncStorage.getItem(STORAGE_KEYS.USERNAME),
+          AsyncStorage.getItem(STORAGE_KEYS.ADMIN_NAME),
+          AsyncStorage.getItem(STORAGE_KEYS.USER_ID),
         ]);
         const serverConfig: ServerConfig | null = configStr
           ? JSON.parse(configStr)
           : null;
         if (serverConfig) configureApi(serverConfig);
-        if (token) setToken(token);
         setState({
-          isConnected: !!(token && serverConfig),
+          isConnected: !!(adminName && serverConfig),
           isLoading: false,
           serverConfig,
-          username,
-          token,
+          adminName,
+          userId: userIdStr ? Number(userIdStr) : null,
           error: null,
         });
       } catch {
@@ -90,23 +86,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, isLoading: true, error: null }));
     try {
       const res = await login(credentials);
-      setToken(res.token);
       await Promise.all([
-        AsyncStorage.setItem(STORAGE_KEYS.TOKEN, res.token),
-        AsyncStorage.setItem(STORAGE_KEYS.USERNAME, res.username),
+        AsyncStorage.setItem(STORAGE_KEYS.ADMIN_NAME, res.adminName),
+        AsyncStorage.setItem(STORAGE_KEYS.USER_ID, String(res.userId)),
       ]);
       setState((s) => ({
         ...s,
         isConnected: true,
         isLoading: false,
-        token: res.token,
-        username: res.username,
+        adminName: res.adminName,
+        userId: res.userId,
         error: null,
       }));
     } catch (err: unknown) {
       const msg =
         err instanceof Error ? err.message : "Connessione fallita";
-      clearToken();
       setState((s) => ({
         ...s,
         isLoading: false,
@@ -117,16 +111,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await logout();
     await Promise.all([
-      AsyncStorage.removeItem(STORAGE_KEYS.TOKEN),
-      AsyncStorage.removeItem(STORAGE_KEYS.USERNAME),
+      AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_NAME),
+      AsyncStorage.removeItem(STORAGE_KEYS.USER_ID),
     ]);
     setState((s) => ({
       ...s,
       isConnected: false,
-      token: null,
-      username: null,
+      adminName: null,
+      userId: null,
       error: null,
     }));
   }, []);

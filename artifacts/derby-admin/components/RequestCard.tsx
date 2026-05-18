@@ -14,19 +14,22 @@ const TYPE_CONFIG: Record<
   string,
   { icon: keyof typeof Feather.glyphMap; label: string; color: string }
 > = {
+  void_item: { icon: "x-circle", label: "Annullamento articolo", color: "#EF4444" },
+  void_ticket: { icon: "trash-2", label: "Annullamento conto", color: "#DC2626" },
   discount: { icon: "percent", label: "Sconto", color: "#F59E0B" },
   refund: { icon: "refresh-ccw", label: "Rimborso", color: "#6366F1" },
-  void: { icon: "x-circle", label: "Annullamento", color: "#EF4444" },
   override: { icon: "unlock", label: "Override", color: "#F05C28" },
   access: { icon: "key", label: "Accesso", color: "#8B5CF6" },
   price_change: { icon: "edit-2", label: "Modifica Prezzo", color: "#06B6D4" },
   payment: { icon: "credit-card", label: "Pagamento", color: "#22C55E" },
+  reopen: { icon: "rotate-ccw", label: "Riapertura", color: "#0EA5E9" },
+  delete: { icon: "trash", label: "Eliminazione", color: "#EF4444" },
   default: { icon: "alert-circle", label: "Richiesta", color: "#64748B" },
 };
 
-function formatTime(timestamp: string) {
+function formatTime(createdAt: number) {
   try {
-    const d = new Date(timestamp);
+    const d = new Date(createdAt);
     return d.toLocaleTimeString("it-IT", {
       hour: "2-digit",
       minute: "2-digit",
@@ -36,9 +39,11 @@ function formatTime(timestamp: string) {
   }
 }
 
-function formatAmount(amount?: number) {
-  if (amount == null) return null;
-  return `€ ${amount.toFixed(2)}`;
+function getAmountFromPayload(payload: Record<string, unknown>): number | null {
+  const v = payload?.amount ?? payload?.total ?? payload?.price;
+  if (v == null) return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
 }
 
 interface Props {
@@ -51,8 +56,8 @@ export function RequestCard({ request, onPress }: Props) {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
 
-  const config =
-    TYPE_CONFIG[request.type] ?? TYPE_CONFIG["default"];
+  const config = TYPE_CONFIG[request.type] ?? TYPE_CONFIG["default"];
+  const amount = getAmountFromPayload(request.payload);
 
   return (
     <TouchableOpacity
@@ -81,7 +86,7 @@ export function RequestCard({ request, onPress }: Props) {
             {config.label}
           </Text>
           <Text style={[styles.time, { color: theme.mutedForeground }]}>
-            {formatTime(request.timestamp)}
+            {formatTime(request.createdAt)}
           </Text>
         </View>
 
@@ -101,10 +106,10 @@ export function RequestCard({ request, onPress }: Props) {
               style={styles.metaIcon}
             />
             <Text style={[styles.meta, { color: theme.mutedForeground }]}>
-              {request.operator}
+              {request.operatorName}
             </Text>
           </View>
-          {request.table && (
+          {request.tableNum && (
             <View style={styles.metaItem}>
               <Feather
                 name="grid"
@@ -113,13 +118,13 @@ export function RequestCard({ request, onPress }: Props) {
                 style={styles.metaIcon}
               />
               <Text style={[styles.meta, { color: theme.mutedForeground }]}>
-                {request.table}
+                Tavolo {request.tableNum}
               </Text>
             </View>
           )}
-          {request.amount != null && (
+          {amount != null && (
             <Text style={[styles.amount, { color: theme.primary }]}>
-              {formatAmount(request.amount)}
+              € {amount.toFixed(2)}
             </Text>
           )}
         </View>

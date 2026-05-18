@@ -29,10 +29,9 @@ export default function LoginScreen() {
   const { signIn, saveServerConfig, serverConfig, isConnected, isLoading, error, clearError } = useAuth();
 
   const [ip, setIp] = useState(serverConfig?.ip ?? "");
-  const [port, setPort] = useState(String(serverConfig?.port ?? "8080"));
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [port, setPort] = useState(String(serverConfig?.port ?? "51521"));
+  const [pin, setPin] = useState("");
+  const [showPin, setShowPin] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
   const [connOk, setConnOk] = useState<boolean | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
@@ -71,7 +70,7 @@ export default function LoginScreen() {
     }
     setTestingConn(true);
     setConnOk(null);
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 8080 };
+    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
     const ok = await testConnection(config);
     setConnOk(ok);
     setTestingConn(false);
@@ -88,13 +87,13 @@ export default function LoginScreen() {
       Alert.alert("Campo mancante", "Inserisci l'indirizzo IP del server.");
       return;
     }
-    if (!username.trim() || !password.trim()) {
-      Alert.alert("Campi mancanti", "Inserisci username e password.");
+    if (!pin.trim()) {
+      Alert.alert("Campo mancante", "Inserisci il PIN admin.");
       return;
     }
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 8080 };
+    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
     await saveServerConfig(config);
-    await signIn({ username: username.trim(), password });
+    await signIn({ pin: pin.trim() });
   };
 
   const topPadding = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
@@ -117,7 +116,7 @@ export default function LoginScreen() {
             Derby Admin
           </Text>
           <Text style={[styles.subtitle, { color: theme.mutedForeground }]}>
-            Autorizzazioni POS
+            Autorizzazioni POS · Rosso Fuoco
           </Text>
         </View>
 
@@ -153,7 +152,7 @@ export default function LoginScreen() {
               <Feather name="radio" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, { color: theme.foreground }]}
-                placeholder="Porta (es. 8080)"
+                placeholder="Porta (default: 51521)"
                 placeholderTextColor={theme.mutedForeground}
                 value={port}
                 onChangeText={(t) => { setPort(t); setConnOk(null); clearError(); }}
@@ -200,12 +199,12 @@ export default function LoginScreen() {
           )}
           {connOk === false && (
             <Text style={[styles.hint, { color: theme.destructive }]}>
-              Server non raggiungibile
+              Server non raggiungibile. Verifica IP, porta (51521) e Wi-Fi.
             </Text>
           )}
 
           <Text style={[styles.sectionLabel, { color: theme.mutedForeground, marginTop: 24 }]}>
-            CREDENZIALI ADMIN
+            ACCESSO ADMIN
           </Text>
 
           <Animated.View
@@ -215,35 +214,28 @@ export default function LoginScreen() {
               { transform: [{ translateX: shakeAnim }] },
             ]}
           >
-            <View style={[styles.inputRow, { borderBottomColor: error ? theme.destructive : theme.border }]}>
-              <Feather name="user" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: theme.foreground }]}
-                placeholder="Username admin"
-                placeholderTextColor={theme.mutedForeground}
-                value={username}
-                onChangeText={(t) => { setUsername(t); clearError(); }}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
             <View style={styles.inputRow}>
-              <Feather name="lock" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
+              <Feather name="hash" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
               <TextInput
                 style={[styles.input, { color: theme.foreground }]}
-                placeholder="Password"
+                placeholder="PIN admin"
                 placeholderTextColor={theme.mutedForeground}
-                value={password}
-                onChangeText={(t) => { setPassword(t); clearError(); }}
-                secureTextEntry={!showPassword}
+                value={pin}
+                onChangeText={(t) => { setPin(t); clearError(); }}
+                secureTextEntry={!showPin}
+                keyboardType="number-pad"
                 autoCapitalize="none"
                 autoCorrect={false}
               />
-              <TouchableOpacity onPress={() => setShowPassword((v) => !v)} style={styles.eyeBtn}>
-                <Feather name={showPassword ? "eye-off" : "eye"} size={16} color={theme.mutedForeground} />
+              <TouchableOpacity onPress={() => setShowPin((v) => !v)} style={styles.eyeBtn}>
+                <Feather name={showPin ? "eye-off" : "eye"} size={16} color={theme.mutedForeground} />
               </TouchableOpacity>
             </View>
           </Animated.View>
+
+          <Text style={[styles.pinHint, { color: theme.mutedForeground }]}>
+            Usa il PIN dell'utente amministratore configurato in Rosso Fuoco Console.
+          </Text>
 
           {error && (
             <View style={[styles.errorBox, { backgroundColor: theme.destructive + "15", borderColor: theme.destructive + "40" }]}>
@@ -364,6 +356,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     marginLeft: 4,
     marginTop: 2,
+  },
+  pinHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginLeft: 4,
+    marginTop: 2,
+    lineHeight: 17,
   },
   errorBox: {
     flexDirection: "row",

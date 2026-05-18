@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 
-const DERBY_PORTS = [4000, 8080, 3000, 8000, 4242, 80, 9000];
+const DERBY_PORTS = [51521, 4000, 8080, 3000, 8000, 4242, 80, 9000];
 const BATCH_SIZE = 30;
 const TIMEOUT_MS = 600;
 
