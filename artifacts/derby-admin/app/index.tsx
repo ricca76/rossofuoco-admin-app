@@ -194,11 +194,13 @@ export default function LoginScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Image
-            source={require("@/assets/images/icon.png")}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
+          <View style={styles.logoWrapper}>
+            <Image
+              source={require("@/assets/images/icon.png")}
+              style={styles.logoImage}
+              resizeMode="cover"
+            />
+          </View>
           <Text style={[styles.title, { color: theme.foreground }]}>
             Rosso Admin
           </Text>
@@ -567,10 +569,21 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { paddingHorizontal: 24 },
   header: { alignItems: "center", marginBottom: 36 },
+  logoWrapper: {
+    width: 90,
+    height: 90,
+    borderRadius: 20,
+    overflow: "hidden",
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+  },
   logoImage: {
     width: 90,
     height: 90,
-    marginBottom: 16,
   },
   title: {
     fontSize: 28,
