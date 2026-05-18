@@ -209,46 +209,68 @@ export function subscribeToEvents(
   onError?: () => void
 ): () => void {
   const url = `${_baseUrl}/api/events/stream`;
-  let es: EventSource | null = null;
   let closed = false;
+  let xhr: XMLHttpRequest | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastIndex = 0;
+
+  function parseEvents(chunk: string) {
+    const lines = chunk.split("\n");
+    let eventType = "message";
+    let dataBuffer = "";
+
+    for (const line of lines) {
+      if (line.startsWith("event:")) {
+        eventType = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataBuffer += line.slice(5).trim();
+      } else if (line === "") {
+        if (dataBuffer) {
+          try {
+            onEvent(eventType, JSON.parse(dataBuffer));
+          } catch {
+            onEvent(eventType, dataBuffer);
+          }
+          eventType = "message";
+          dataBuffer = "";
+        }
+      }
+    }
+  }
 
   function connect() {
     if (closed) return;
-    es = new EventSource(url);
+    lastIndex = 0;
+    xhr = new XMLHttpRequest();
+    xhr.open("GET", url, true);
+    xhr.setRequestHeader("Accept", "text/event-stream");
+    xhr.setRequestHeader("Cache-Control", "no-cache");
 
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        onEvent(e.type || "message", data);
-      } catch {
-        onEvent(e.type || "message", e.data);
+    xhr.onreadystatechange = () => {
+      if (closed) return;
+      if (xhr && xhr.readyState >= 3 && xhr.responseText) {
+        const newText = xhr.responseText.slice(lastIndex);
+        lastIndex = xhr.responseText.length;
+        if (newText) parseEvents(newText);
+      }
+      if (xhr && xhr.readyState === 4) {
+        xhr = null;
+        if (!closed) {
+          onError?.();
+          reconnectTimer = setTimeout(connect, 5000);
+        }
       }
     };
 
-    const eventTypes = [
-      "auth_request_created",
-      "auth_request_resolved",
-      "order_changed",
-    ];
-    for (const type of eventTypes) {
-      es.addEventListener(type, (e: MessageEvent) => {
-        try {
-          onEvent(type, JSON.parse(e.data));
-        } catch {
-          onEvent(type, e.data);
-        }
-      });
-    }
-
-    es.onerror = () => {
-      es?.close();
-      es = null;
+    xhr.onerror = () => {
+      xhr = null;
       if (!closed) {
         onError?.();
         reconnectTimer = setTimeout(connect, 5000);
       }
     };
+
+    xhr.send();
   }
 
   connect();
@@ -256,7 +278,9 @@ export function subscribeToEvents(
   return () => {
     closed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
-    es?.close();
-    es = null;
+    if (xhr) {
+      xhr.abort();
+      xhr = null;
+    }
   };
 }
