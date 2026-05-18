@@ -3,6 +3,8 @@ import React, {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useRef,
   useState,
 } from "react";
 import {
@@ -10,6 +12,7 @@ import {
   getPendingRequests,
   resolveRequest,
 } from "@/services/derbyApi";
+import { notifyNewAuthRequest } from "@/services/notifications";
 
 interface RequestsState {
   requests: AuthRequest[];
@@ -38,10 +41,38 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     lastUpdated: null,
   });
 
+  const knownIds = useRef<Set<string>>(new Set());
+  const isFirstLoad = useRef(true);
+
+  const detectAndNotify = useCallback(
+    async (requests: AuthRequest[]) => {
+      if (isFirstLoad.current) {
+        for (const r of requests) knownIds.current.add(r.id);
+        isFirstLoad.current = false;
+        return;
+      }
+
+      const newOnes = requests.filter(
+        (r) => r.status === "pending" && !knownIds.current.has(r.id)
+      );
+
+      for (const r of newOnes) {
+        knownIds.current.add(r.id);
+        try {
+          await notifyNewAuthRequest(r.type, r.operatorName, r.description, r.id);
+        } catch {
+          // ignora errori notifiche
+        }
+      }
+    },
+    []
+  );
+
   const fetchRequests = useCallback(async () => {
     setState((s) => ({ ...s, isLoading: true, error: null }));
     try {
       const requests = await getPendingRequests();
+      await detectAndNotify(requests);
       setState((s) => ({
         ...s,
         requests,
@@ -52,12 +83,13 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
       const msg = err instanceof Error ? err.message : "Errore caricamento";
       setState((s) => ({ ...s, isLoading: false, error: msg }));
     }
-  }, []);
+  }, [detectAndNotify]);
 
   const refresh = useCallback(async () => {
     setState((s) => ({ ...s, isRefreshing: true, error: null }));
     try {
       const requests = await getPendingRequests();
+      await detectAndNotify(requests);
       setState((s) => ({
         ...s,
         requests,
@@ -68,11 +100,12 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
       const msg = err instanceof Error ? err.message : "Errore caricamento";
       setState((s) => ({ ...s, isRefreshing: false, error: msg }));
     }
-  }, []);
+  }, [detectAndNotify]);
 
   const approve = useCallback(async (id: string, adminName?: string) => {
     await resolveRequest(id, true, adminName);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    knownIds.current.delete(id);
     setState((s) => ({
       ...s,
       requests: s.requests.filter((r) => r.id !== id),
@@ -82,6 +115,7 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
   const deny = useCallback(async (id: string, adminName?: string) => {
     await resolveRequest(id, false, adminName);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    knownIds.current.delete(id);
     setState((s) => ({
       ...s,
       requests: s.requests.filter((r) => r.id !== id),

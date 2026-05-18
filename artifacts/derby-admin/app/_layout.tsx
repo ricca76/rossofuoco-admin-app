@@ -6,7 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { router, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { useColorScheme } from "react-native";
@@ -16,6 +16,10 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 import { AuthProvider } from "@/context/AuthContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import {
+  addNotificationResponseListener,
+  requestNotificationPermissions,
+} from "@/services/notifications";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -25,6 +29,27 @@ function RootLayoutNav() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
+
+  useEffect(() => {
+    requestNotificationPermissions().catch(() => {});
+
+    const sub = addNotificationResponseListener((response) => {
+      const data = response.notification.request.content.data as Record<
+        string,
+        unknown
+      >;
+      if (data?.requestId && typeof data.requestId === "string") {
+        router.push({
+          pathname: "/(main)/request/[id]",
+          params: { id: data.requestId },
+        });
+      } else {
+        router.push("/(main)/requests");
+      }
+    });
+
+    return () => sub.remove();
+  }, []);
 
   return (
     <Stack
