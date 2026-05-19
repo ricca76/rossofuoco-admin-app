@@ -1,0 +1,16 @@
+{
+  "name": "rosso-kds",
+  "version": "1.0.0",
+  "description": "Kitchen Display System — Rosso Fuoco Console",
+  "main": "main.js",
+  "author": "Rosso Fuoco",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "pack:win": "electron-packager . \"Rosso KDS\" --platform=win32 --arch=x64 --out=../dist-kds --overwrite --icon=assets/icon.ico --app-copyright=\"Rosso Fuoco\" --no-prune"
+  },
+  "devDependencies": {
+    "electron": "^33.4.0",
+    "electron-packager": "^17.1.2"
+  }
+}

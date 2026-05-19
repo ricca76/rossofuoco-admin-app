@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rosso KDS</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red: #C0392B;
+    --red-dark: #96281B;
+    --red-light: #E74C3C;
+    --orange: #E67E22;
+    --bg: #0f0a0a;
+    --bg2: #1a0f0f;
+    --bg3: #221515;
+    --card: #1f1313;
+    --card-border: #2e1a1a;
+    --text: #f5e6e6;
+    --text2: #b08080;
+    --green: #27AE60;
+    --blue: #2980B9;
+    --purple: #8E44AD;
+    --yellow: #F39C12;
+    --radius: 12px;
+  }
+
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+  }
+
+  /* ─── CONFIG SCREEN ─── */
+  #config-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 32px;
+    background: radial-gradient(ellipse at center, #2a0f0f 0%, #0f0606 100%);
+  }
+
+  .config-logo {
+    text-align: center;
+  }
+  .config-logo .flame { font-size: 72px; margin-bottom: 8px; }
+  .config-logo h1 { font-size: 32px; font-weight: 700; color: var(--red-light); letter-spacing: 4px; text-transform: uppercase; }
+  .config-logo p { font-size: 14px; color: var(--text2); margin-top: 4px; }
+
+  .config-box {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 36px 40px;
+    width: 400px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .config-box h2 { font-size: 16px; color: var(--text2); font-weight: 500; text-align: center; letter-spacing: 1px; text-transform: uppercase; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: 1px; }
+  .field input {
+    background: var(--bg3);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 16px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .field input:focus { border-color: var(--red); }
+
+  .btn-connect {
+    background: var(--red);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    letter-spacing: 0.5px;
+  }
+  .btn-connect:hover { background: var(--red-light); }
+  .btn-connect:active { transform: scale(0.98); }
+  .btn-connect:disabled { background: var(--bg3); color: var(--text2); cursor: not-allowed; }
+
+  #config-status { font-size: 13px; text-align: center; color: var(--text2); min-height: 18px; }
+  #config-status.ok { color: var(--green); }
+  #config-status.err { color: var(--red-light); }
+
+  /* ─── KDS SCREEN ─── */
+  #kds-screen { display: none; flex-direction: column; height: 100vh; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    height: 56px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--card-border);
+    gap: 16px;
+    flex-shrink: 0;
+  }
+  .topbar-logo { font-size: 18px; font-weight: 700; color: var(--red-light); letter-spacing: 2px; text-transform: uppercase; }
+  .topbar-sep { width: 1px; height: 24px; background: var(--card-border); }
+  .server-info { font-size: 12px; color: var(--text2); }
+  .spacer { flex: 1; }
+  .clock { font-size: 20px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+  .conn-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+    padding: 4px 10px; border-radius: 20px;
+  }
+  .conn-badge.live { background: #0f2a1a; color: var(--green); border: 1px solid #1a4a2a; }
+  .conn-badge.conn { background: #2a2000; color: var(--yellow); border: 1px solid #4a3800; }
+  .conn-badge.off { background: #2a0f0f; color: var(--red-light); border: 1px solid #4a1a1a; }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .conn-badge.live .conn-dot { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .topbar-btn {
+    background: var(--bg3); border: 1px solid var(--card-border);
+    color: var(--text2); border-radius: 6px; padding: 6px 12px;
+    font-size: 12px; cursor: pointer; transition: color 0.2s, border-color 0.2s;
+  }
+  .topbar-btn:hover { color: var(--text); border-color: var(--red); }
+
+  .pending-count {
+    background: var(--red); color: white;
+    border-radius: 20px; padding: 3px 10px;
+    font-size: 13px; font-weight: 700;
+    min-width: 28px; text-align: center;
+  }
+
+  /* ─── CARDS GRID ─── */
+  .cards-wrap {
+    flex: 1; overflow-y: auto; padding: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+    align-content: start;
+  }
+  .cards-wrap::-webkit-scrollbar { width: 6px; }
+  .cards-wrap::-webkit-scrollbar-track { background: transparent; }
+  .cards-wrap::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 3px; }
+
+  .empty-state {
+    grid-column: 1 / -1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 400px; gap: 16px; color: var(--text2);
+  }
+  .empty-state .icon { font-size: 64px; opacity: 0.3; }
+  .empty-state p { font-size: 18px; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 12px;
+    animation: cardIn 0.3s ease;
+    transition: border-color 0.2s;
+    border-left: 4px solid var(--card-border);
+  }
+  .card:hover { border-color: var(--red-dark); }
+  @keyframes cardIn { from { opacity:0; transform: translateY(8px); } to { opacity:1; transform:none; } }
+
+  .card-header { display: flex; align-items: center; gap: 10px; }
+  .table-badge {
+    background: var(--red-dark); color: white;
+    border-radius: 8px; padding: 4px 10px;
+    font-size: 13px; font-weight: 700; white-space: nowrap;
+  }
+  .type-badge {
+    border-radius: 6px; padding: 3px 8px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .card-spacer { flex: 1; }
+  .time-badge { font-size: 12px; color: var(--text2); white-space: nowrap; }
+  .time-badge.urgent { color: var(--red-light); font-weight: 600; }
+
+  .card-desc { font-size: 15px; color: var(--text); line-height: 1.4; }
+  .card-operator { font-size: 12px; color: var(--text2); }
+
+  .card-footer { display: flex; gap: 8px; margin-top: 4px; }
+  .card-payload { background: var(--bg3); border-radius: 6px; padding: 8px 10px; }
+  .card-payload-item { font-size: 12px; color: var(--text2); display: flex; gap: 8px; }
+  .card-payload-item span:first-child { color: var(--text2); min-width: 80px; }
+  .card-payload-item span:last-child { color: var(--text); font-weight: 500; }
+
+  /* ─── STATUS BAR ─── */
+  .statusbar {
+    height: 32px; background: var(--bg2); border-top: 1px solid var(--card-border);
+    display: flex; align-items: center; padding: 0 16px; gap: 16px;
+    font-size: 11px; color: var(--text2); flex-shrink: 0;
+  }
+  .statusbar-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text2); }
+</style>
+</head>
+<body>
+
+<!-- CONFIG SCREEN -->
+<div id="config-screen">
+  <div class="config-logo">
+    <div class="flame">🔴</div>
+    <h1>Rosso KDS</h1>
+    <p>Kitchen Display System — Rosso Fuoco Console</p>
+  </div>
+  <div class="config-box">
+    <h2>Configurazione Server</h2>
+    <div class="field">
+      <label>Indirizzo IP Server</label>
+      <input type="text" id="input-ip" placeholder="192.168.0.177" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label>Porta</label>
+      <input type="text" id="input-port" placeholder="51521" autocomplete="off">
+    </div>
+    <div id="config-status"></div>
+    <button class="btn-connect" id="btn-connect">Connetti</button>
+  </div>
+</div>
+
+<!-- KDS SCREEN -->
+<div id="kds-screen">
+  <div class="topbar">
+    <div class="topbar-logo">🔴 Rosso KDS</div>
+    <div class="topbar-sep"></div>
+    <div class="server-info" id="server-label"></div>
+    <div class="spacer"></div>
+    <div id="pending-count" class="pending-count" style="display:none">0</div>
+    <div class="conn-badge off" id="conn-badge">
+      <div class="conn-dot"></div>
+      <span id="conn-text">Disconnesso</span>
+    </div>
+    <div class="clock" id="clock">00:00:00</div>
+    <button class="topbar-btn" id="btn-refresh">↺ Aggiorna</button>
+    <button class="topbar-btn" id="btn-fullscreen">⛶ Schermo intero</button>
+    <button class="topbar-btn" id="btn-settings">⚙ Impostazioni</button>
+  </div>
+
+  <div class="cards-wrap" id="cards-wrap">
+    <div class="empty-state" id="empty-state">
+      <div class="icon">✓</div>
+      <p>Nessuna richiesta in attesa</p>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="statusbar-dot"></div>
+    <span id="status-text">In attesa di dati...</span>
+    <div style="flex:1"></div>
+    <span id="last-update"></span>
+  </div>
+</div>
+
+<script>
+// ─── TYPE CONFIG ───
+const TYPE_META = {
+  void_item:    { label: 'Annulla Articolo', color: '#C0392B', bg: '#2a0f0f' },
+  void_ticket:  { label: 'Annulla Scontrino', color: '#E74C3C', bg: '#330d0d' },
+  discount:     { label: 'Sconto', color: '#E67E22', bg: '#2a1500' },
+  refund:       { label: 'Rimborso', color: '#8E44AD', bg: '#1a0a2a' },
+  override:     { label: 'Override', color: '#F39C12', bg: '#2a1e00' },
+  price_change: { label: 'Modifica Prezzo', color: '#2980B9', bg: '#0a1a2a' },
+  payment:      { label: 'Pagamento', color: '#27AE60', bg: '#0a2a15' },
+  reopen:       { label: 'Riapri', color: '#16A085', bg: '#0a2020' },
+  delete:       { label: 'Elimina', color: '#C0392B', bg: '#2a0808' },
+};
+const DEFAULT_META = { label: 'Richiesta', color: '#7f8c8d', bg: '#1a1a1a' };
+
+// ─── STATE ───
+let serverBase = '';
+let requests = [];
+let sseSource = null;
+let pollInterval = null;
+let reconnectTimer = null;
+let connState = 'off'; // off | conn | live
+
+// ─── CONFIG ───
+async function loadConfig() {
+  if (window.kds) {
+    return await window.kds.getConfig();
+  }
+  return {
+    serverIp: localStorage.getItem('kds_ip') || '192.168.0.177',
+    serverPort: localStorage.getItem('kds_port') || '51521',
+  };
+}
+async function saveConfig(ip, port) {
+  if (window.kds) {
+    await window.kds.saveConfig({ serverIp: ip, serverPort: port });
+  } else {
+    localStorage.setItem('kds_ip', ip);
+    localStorage.setItem('kds_port', port);
+  }
+}
+
+// ─── CLOCK ───
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('it-IT');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─── HELPERS ───
+function formatElapsed(createdAt) {
+  const secs = Math.floor((Date.now() - createdAt) / 1000);
+  if (secs < 60) return `${secs}s fa`;
+  if (secs < 3600) return `${Math.floor(secs/60)}m fa`;
+  return `${Math.floor(secs/3600)}h fa`;
+}
+function isUrgent(createdAt) {
+  return (Date.now() - createdAt) > 5 * 60 * 1000; // >5 min
+}
+function extractAmount(payload) {
+  const val = payload?.amount ?? payload?.total ?? payload?.price ?? payload?.discount;
+  if (val == null) return null;
+  return typeof val === 'number' ? val.toFixed(2) : String(val);
+}
+
+// ─── RENDER ───
+function renderCards() {
+  const wrap = document.getElementById('cards-wrap');
+  const empty = document.getElementById('empty-state');
+  const count = document.getElementById('pending-count');
+
+  const pending = requests.filter(r => r.status === 'pending');
+  count.textContent = pending.length;
+  count.style.display = pending.length > 0 ? 'block' : 'none';
+
+  // remove old cards (keep empty-state)
+  Array.from(wrap.children).forEach(el => { if (el !== empty) el.remove(); });
+
+  if (pending.length === 0) {
+    empty.style.display = 'flex';
+    document.getElementById('status-text').textContent = 'Nessuna richiesta in attesa';
+    return;
+  }
+  empty.style.display = 'none';
+  document.getElementById('status-text').textContent = `${pending.length} richiesta${pending.length>1?'e':''} in attesa di autorizzazione`;
+
+  // Sort: oldest first
+  pending.sort((a, b) => a.createdAt - b.createdAt);
+
+  pending.forEach(req => {
+    const meta = TYPE_META[req.type] || DEFAULT_META;
+    const urgent = isUrgent(req.createdAt);
+    const amount = extractAmount(req.payload || {});
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.style.borderLeftColor = meta.color;
+
+    const tableLabel = req.tableNum ? `Tavolo ${req.tableNum}` : (req.ticketId ? `Scontrino #${req.ticketId}` : '—');
+    const amountHtml = amount ? `<div class="card-payload"><div class="card-payload-item"><span>Importo</span><span>€ ${amount}</span></div></div>` : '';
+    const payloadItems = Object.entries(req.payload || {})
+      .filter(([k]) => !['amount','total','price','discount'].includes(k))
+      .slice(0, 3)
+      .map(([k,v]) => `<div class="card-payload-item"><span>${k}</span><span>${v}</span></div>`)
+      .join('');
+    const payloadHtml = payloadItems ? `<div class="card-payload">${payloadItems}</div>` : '';
+
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="table-badge">${tableLabel}</div>
+        <div class="type-badge" style="background:${meta.bg};color:${meta.color};border:1px solid ${meta.color}40">${meta.label}</div>
+        <div class="card-spacer"></div>
+        <div class="time-badge ${urgent?'urgent':''}">${formatElapsed(req.createdAt)}${urgent?' ⚠':''}</div>
+      </div>
+      <div class="card-desc">${req.description || meta.label}</div>
+      <div class="card-operator">Operatore: <strong>${req.operatorName || '—'}</strong></div>
+      ${amountHtml}${payloadHtml}
+    `;
+    wrap.appendChild(card);
+  });
+
+  document.getElementById('last-update').textContent = `Aggiornato: ${new Date().toLocaleTimeString('it-IT')}`;
+}
+
+// ─── DATA FETCH ───
+async function fetchRequests() {
+  try {
+    const res = await fetch(`${serverBase}/api/auth-requests`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    requests = data.requests || [];
+    renderCards();
+  } catch (e) {
+    console.warn('Fetch error:', e.message);
+  }
+}
+
+// ─── SSE ───
+function setConnState(state) {
+  connState = state;
+  const badge = document.getElementById('conn-badge');
+  const text = document.getElementById('conn-text');
+  badge.className = `conn-badge ${state}`;
+  if (state === 'live') text.textContent = 'Live';
+  else if (state === 'conn') text.textContent = 'Connessione...';
+  else text.textContent = 'Disconnesso';
+}
+
+function startSSE() {
+  if (sseSource) { sseSource.close(); sseSource = null; }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+
+  setConnState('conn');
+
+  try {
+    sseSource = new EventSource(`${serverBase}/api/events/stream`);
+
+    sseSource.onopen = () => {
+      setConnState('live');
+      fetchRequests();
+    };
+
+    sseSource.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data);
+        // New auth request or status change
+        if (event.type === 'auth_request' || event.request) {
+          const req = event.request || event;
+          if (req.id) {
+            const idx = requests.findIndex(r => r.id === req.id);
+            if (idx >= 0) requests[idx] = req;
+            else requests.push(req);
+            renderCards();
+          }
+        }
+        // General update: re-fetch
+        if (['new_request', 'request_resolved', 'update'].includes(event.type)) {
+          fetchRequests();
+        }
+      } catch (_) {
+        fetchRequests(); // fallback: re-fetch on any event
+      }
+    };
+
+    sseSource.onerror = () => {
+      setConnState('off');
+      sseSource.close();
+      sseSource = null;
+      // Reconnect after 5s
+      reconnectTimer = setTimeout(startSSE, 5000);
+    };
+  } catch (e) {
+    setConnState('off');
+    reconnectTimer = setTimeout(startSSE, 5000);
+  }
+}
+
+function startPolling() {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(fetchRequests, 15000);
+}
+
+// ─── CONNECT ───
+async function connect(ip, port) {
+  serverBase = `http://${ip}:${port}`;
+  await saveConfig(ip, port);
+  document.getElementById('server-label').textContent = `${ip}:${port}`;
+  document.getElementById('config-screen').style.display = 'none';
+  document.getElementById('kds-screen').style.display = 'flex';
+  await fetchRequests();
+  startSSE();
+  startPolling();
+}
+
+// ─── CONFIG SCREEN LOGIC ───
+async function initConfigScreen() {
+  const cfg = await loadConfig();
+  document.getElementById('input-ip').value = cfg.serverIp;
+  document.getElementById('input-port').value = cfg.serverPort;
+
+  document.getElementById('btn-connect').addEventListener('click', async () => {
+    const ip = document.getElementById('input-ip').value.trim();
+    const port = document.getElementById('input-port').value.trim() || '51521';
+    const statusEl = document.getElementById('config-status');
+    const btn = document.getElementById('btn-connect');
+
+    if (!ip) { statusEl.textContent = 'Inserisci l\'indirizzo IP del server'; statusEl.className = 'err'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Connessione in corso...';
+    statusEl.textContent = 'Verifica raggiungibilità server...';
+    statusEl.className = '';
+
+    try {
+      const res = await fetch(`http://${ip}:${port}/api/healthz`, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      statusEl.textContent = '✓ Server raggiunto';
+      statusEl.className = 'ok';
+      setTimeout(() => connect(ip, port), 500);
+    } catch (e) {
+      statusEl.textContent = `✗ Server non raggiungibile (${e.message})`;
+      statusEl.className = 'err';
+      btn.disabled = false;
+      btn.textContent = 'Connetti';
+    }
+  });
+
+  // Enter key
+  [document.getElementById('input-ip'), document.getElementById('input-port')].forEach(el => {
+    el.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('btn-connect').click(); });
+  });
+}
+
+// ─── KDS SCREEN BUTTONS ───
+document.getElementById('btn-refresh').addEventListener('click', fetchRequests);
+document.getElementById('btn-fullscreen').addEventListener('click', () => {
+  if (window.kds) { window.kds.toggleFullscreen(); }
+  else if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+});
+document.getElementById('btn-settings').addEventListener('click', () => {
+  if (sseSource) { sseSource.close(); sseSource = null; }
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  document.getElementById('kds-screen').style.display = 'none';
+  document.getElementById('config-screen').style.display = 'flex';
+  setConnState('off');
+  requests = [];
+});
+
+// ─── UPDATE elapsed times every 30s ───
+setInterval(() => { if (requests.length > 0) renderCards(); }, 30000);
+
+// ─── INIT ───
+initConfigScreen();
+</script>
+</body>
+</html>
