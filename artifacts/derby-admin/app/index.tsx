@@ -30,13 +30,13 @@ import {
 } from "@/services/derbyApi";
 import {
   BiometricType,
-  authenticateWithBiometrics,
   biometricLabel,
   getBiometricType,
 } from "@/services/biometrics";
+import FaceAuthModal from "@/components/FaceAuthModal";
 
 const DEFAULT_IP = "192.168.0.177";
-const FIXED_PORT = 51521;
+const DEFAULT_PORT = 51521;
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -57,6 +57,7 @@ export default function LoginScreen() {
   } = useAuth();
 
   const [ip, setIp] = useState(serverConfig?.ip ?? DEFAULT_IP);
+  const [port, setPort] = useState(String(serverConfig?.port ?? DEFAULT_PORT));
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
@@ -67,6 +68,8 @@ export default function LoginScreen() {
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [biometricType, setBiometricType] = useState<BiometricType>("none");
   const [biometricLoading, setBiometricLoading] = useState(false);
+  const [faceModalVisible, setFaceModalVisible] = useState(false);
+  const [faceModalPurpose] = useState<"login">("login");
 
   const pinRef = useRef<TextInput>(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
@@ -126,7 +129,7 @@ export default function LoginScreen() {
     setTestingConn(true);
     setConnOk(null);
     clearError();
-    const config: ServerConfig = { ip: ip.trim(), port: FIXED_PORT };
+    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
     const ok = await testConnection(config);
     setConnOk(ok);
     setTestingConn(false);
@@ -158,26 +161,19 @@ export default function LoginScreen() {
       Alert.alert("Campo mancante", "Inserisci il PIN admin.");
       return;
     }
-    const config: ServerConfig = { ip: ip.trim(), port: FIXED_PORT };
+    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
     await saveServerConfig(config);
     await signIn({ pin: pin.trim() });
   };
 
-  const handleFaceIdLogin = async () => {
+  const handleFaceLogin = () => {
     if (!hasSavedCredentials) return;
-    const label = biometricLabel(biometricType);
-    setBiometricLoading(true);
-    clearError();
-    const auth = await authenticateWithBiometrics(
-      `Usa ${label} per accedere a Rosso Admin`
-    );
-    if (!auth.success) {
-      setBiometricLoading(false);
-      if (auth.error) Alert.alert("Autenticazione", auth.error);
-      return;
-    }
+    setFaceModalVisible(true);
+  };
+
+  const handleFaceLoginSuccess = async (_employeeId: number, _employeeName: string) => {
+    setFaceModalVisible(false);
     await signInWithStoredPin();
-    setBiometricLoading(false);
   };
 
   const topPadding = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
@@ -191,10 +187,7 @@ export default function LoginScreen() {
   const getUserFullName = (user: AdminUser) =>
     [user.firstName, user.lastName].filter(Boolean).join(" ") || "Utente";
 
-  const biometricIcon: keyof typeof Feather.glyphMap =
-    biometricType === "faceId" ? "smile" : "radio";
-
-  const showBiometricBtn = hasSavedCredentials && biometricType !== "none";
+  const showFaceBtn = hasSavedCredentials;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -223,35 +216,29 @@ export default function LoginScreen() {
           </Text>
         </View>
 
-        {/* ── Face ID fast login ─────────────────────────────────── */}
-        {showBiometricBtn && (
+        {/* ── Riconoscimento volto (face recognition POS) ─────── */}
+        {showFaceBtn && (
           <View style={styles.biometricSection}>
             <TouchableOpacity
               style={[
                 styles.biometricBtn,
-                { backgroundColor: theme.primary, opacity: biometricLoading ? 0.7 : 1 },
+                { backgroundColor: theme.primary, opacity: isLoading ? 0.7 : 1 },
               ]}
-              onPress={handleFaceIdLogin}
-              disabled={biometricLoading || isLoading}
+              onPress={handleFaceLogin}
+              disabled={isLoading}
               activeOpacity={0.82}
             >
-              {biometricLoading ? (
-                <ActivityIndicator color="#fff" size={22} />
-              ) : (
-                <>
-                  <Feather name={biometricIcon} size={22} color="#fff" />
-                  <View>
-                    <Text style={styles.biometricBtnTitle}>
-                      Accedi con {biometricLabel(biometricType)}
-                    </Text>
-                    {savedAdminName && (
-                      <Text style={styles.biometricBtnSub}>
-                        {savedAdminName}
-                      </Text>
-                    )}
-                  </View>
-                </>
-              )}
+              <Feather name="smile" size={22} color="#fff" />
+              <View>
+                <Text style={styles.biometricBtnTitle}>
+                  Accedi con riconoscimento volto
+                </Text>
+                {savedAdminName && (
+                  <Text style={styles.biometricBtnSub}>
+                    {savedAdminName}
+                  </Text>
+                )}
+              </View>
             </TouchableOpacity>
 
             <View style={styles.dividerRow}>
@@ -336,17 +323,25 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Porta fissa */}
+            {/* Porta modificabile */}
             <View style={styles.inputRow}>
               <Feather name="radio" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
-              <Text style={[styles.portFixed, { color: theme.mutedForeground }]}>
-                Porta
-              </Text>
-              <View style={[styles.portBadge, { backgroundColor: theme.primary + "15", borderColor: theme.primary + "30" }]}>
-                <Text style={[styles.portBadgeText, { color: theme.primary }]}>
-                  {FIXED_PORT}
-                </Text>
-              </View>
+              <TextInput
+                style={[styles.input, { color: theme.foreground }]}
+                placeholder={`Porta (default: ${DEFAULT_PORT})`}
+                placeholderTextColor={theme.mutedForeground}
+                value={port}
+                onChangeText={(t) => {
+                  setPort(t);
+                  setConnOk(null);
+                  setAdminUsers([]);
+                  setSelectedUser(null);
+                  clearError();
+                }}
+                keyboardType="number-pad"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
             </View>
           </View>
 
@@ -491,6 +486,14 @@ export default function LoginScreen() {
         visible={scannerVisible}
         onClose={() => setScannerVisible(false)}
         onSelect={handleServerFound}
+      />
+
+      <FaceAuthModal
+        visible={faceModalVisible}
+        purpose={faceModalPurpose}
+        onSuccess={handleFaceLoginSuccess}
+        onCancel={() => setFaceModalVisible(false)}
+        onFallback={() => setFaceModalVisible(false)}
       />
     </View>
   );
