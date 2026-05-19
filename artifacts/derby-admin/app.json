@@ -38,9 +38,9 @@
       "expo-font",
       "expo-web-browser",
       [
-        "expo-local-authentication",
+        "expo-camera",
         {
-          "faceIDPermission": "Rosso Admin usa Face ID per autorizzare l'accesso come amministratore senza dover reinserire il PIN."
+          "cameraPermission": "Rosso Admin usa la fotocamera per il riconoscimento del volto dell'amministratore."
         }
       ],
       [
