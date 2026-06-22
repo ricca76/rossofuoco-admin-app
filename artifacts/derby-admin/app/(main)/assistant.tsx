@@ -1,11 +1,16 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  NativeModules,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,53 +32,9 @@ import {
   type PrinterGroup,
 } from "@/services/derbyApi";
 
-// ── Speech recognition: lazy native module, fallback to text input ────────────
-// expo-speech-recognition requires a native build; in Expo Go the module
-// does not exist. We detect availability at runtime and degrade gracefully.
-
-let SpeechModule: {
-  start: (opts: Record<string, unknown>) => void;
-  stop: () => void;
-  requestPermissionsAsync: () => Promise<{ granted: boolean }>;
-} | null = null;
-
-let useSpeechEvent: ((
-  event: string,
-  handler: (e: { results: { transcript: string }[]; isFinal?: boolean; error?: string }) => void
-) => void) | null = null;
-
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const mod = require("expo-speech-recognition") as {
-    ExpoSpeechRecognitionModule: typeof SpeechModule;
-    useSpeechRecognitionEvent: typeof useSpeechEvent;
-  };
-  if (mod.ExpoSpeechRecognitionModule && mod.useSpeechRecognitionEvent) {
-    SpeechModule = mod.ExpoSpeechRecognitionModule;
-    useSpeechEvent = mod.useSpeechRecognitionEvent;
-  }
-} catch {
-  // native module not available — use text input fallback
-}
-
-const SPEECH_AVAILABLE = SpeechModule !== null;
-
-// ── No-op hook when speech is unavailable ────────────────────────────────────
-function useSpeechEventSafe(
-  event: string,
-  handler: (e: { results: { transcript: string }[]; isFinal?: boolean; error?: string }) => void
-) {
-  const stableHandler = useRef(handler);
-  stableHandler.current = handler;
-
-  useEffect(() => {
-    if (!useSpeechEvent) return;
-    useSpeechEvent(event, (e) => stableHandler.current(e));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [event]);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
+// Detect native speech module availability via NativeModules (safe in both Expo Go and native build).
+// The JS import above always succeeds; the native module may not exist in Expo Go.
+const SPEECH_AVAILABLE = !!NativeModules.ExpoSpeechRecognitionModule;
 
 const API_BASE = "";
 
@@ -88,6 +49,196 @@ interface AIMessage {
 
 type AppState = "idle" | "listening" | "processing";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-component: mic button + speech hooks (native build only).
+// Hooks are called unconditionally at top level — never conditionally.
+// This component is only RENDERED when SPEECH_AVAILABLE is true.
+// ─────────────────────────────────────────────────────────────────────────────
+function MicController({
+  appState,
+  transcript,
+  onTranscriptReady,
+  onStateChange,
+  theme,
+  pulseAnim,
+}: {
+  appState: AppState;
+  transcript: string;
+  onTranscriptReady: (text: string) => void;
+  onStateChange: (s: AppState) => void;
+  theme: typeof colors.dark;
+  pulseAnim: Animated.Value;
+}) {
+  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    ExpoSpeechRecognitionModule.requestPermissionsAsync().then((r) =>
+      setHasMicPermission(r.granted)
+    );
+  }, []);
+
+  // ── Speech hooks at top level ─────────────────────────────────────────────
+  useSpeechRecognitionEvent("result", (event) => {
+    const text = event.results[0]?.transcript ?? "";
+    if (event.isFinal && text.trim()) {
+      onTranscriptReady(text.trim());
+    }
+  });
+
+  useSpeechRecognitionEvent("end", () => {
+    if (appState === "listening") onStateChange("idle");
+  });
+
+  useSpeechRecognitionEvent("error", (event) => {
+    onStateChange("idle");
+    if (event.error !== "no-speech") {
+      Alert.alert("Microfono", `Errore: ${event.error}`);
+    }
+  });
+
+  const toggleListening = async () => {
+    if (appState === "listening") {
+      ExpoSpeechRecognitionModule.stop();
+      onStateChange("idle");
+      return;
+    }
+    if (!hasMicPermission) {
+      const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      if (!result.granted) {
+        Alert.alert("Microfono", "Permesso microfono necessario.");
+        return;
+      }
+      setHasMicPermission(true);
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onStateChange("listening");
+    ExpoSpeechRecognitionModule.start({
+      lang: "it-IT",
+      interimResults: true,
+      maxAlternatives: 1,
+      continuous: false,
+    });
+  };
+
+  return (
+    <View style={micStyles.micArea}>
+      {appState === "processing" ? (
+        <View style={[micStyles.micBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <ActivityIndicator size={28} color={theme.primary} />
+        </View>
+      ) : (
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <TouchableOpacity
+            style={[
+              micStyles.micBtn,
+              {
+                backgroundColor: appState === "listening" ? theme.primary : theme.card,
+                borderColor: appState === "listening" ? theme.primary : theme.border,
+                shadowColor: theme.primary,
+                shadowOpacity: appState === "listening" ? 0.4 : 0,
+                shadowRadius: 16,
+                shadowOffset: { width: 0, height: 4 },
+                elevation: appState === "listening" ? 8 : 0,
+              },
+            ]}
+            onPress={toggleListening}
+            activeOpacity={0.85}
+          >
+            <Feather
+              name="mic"
+              size={30}
+              color={appState === "listening" ? "#fff" : theme.primary}
+            />
+          </TouchableOpacity>
+        </Animated.View>
+      )}
+      <Text style={[micStyles.micLabel, { color: theme.mutedForeground }]}>
+        {appState === "idle" && "Tocca per parlare"}
+        {appState === "listening" && "In ascolto... tocca per fermare"}
+        {appState === "processing" && "Elaborazione..."}
+      </Text>
+      {appState === "listening" && transcript.length > 0 && (
+        <View style={[micStyles.transcriptBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Feather name="edit-3" size={14} color={theme.mutedForeground} />
+          <Text style={[micStyles.transcriptText, { color: theme.mutedForeground }]} numberOfLines={2}>
+            {transcript}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const micStyles = StyleSheet.create({
+  micArea: { alignItems: "center", paddingTop: 16, paddingBottom: 16, gap: 10 },
+  micBtn: { width: 76, height: 76, borderRadius: 38, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  micLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  transcriptBar: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, padding: 12, borderRadius: 12, borderWidth: 1, marginTop: 4 },
+  transcriptText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-component: text input fallback (Expo Go).
+// ─────────────────────────────────────────────────────────────────────────────
+function TextInputController({
+  appState,
+  onSubmit,
+  theme,
+}: {
+  appState: AppState;
+  onSubmit: (text: string) => void;
+  theme: typeof colors.dark;
+}) {
+  const [value, setValue] = useState("");
+
+  const submit = () => {
+    if (value.trim() && appState !== "processing") {
+      onSubmit(value.trim());
+      setValue("");
+    }
+  };
+
+  return (
+    <View style={[textStyles.area, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
+      <View style={[textStyles.row, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <TextInput
+          style={[textStyles.input, { color: theme.foreground }]}
+          placeholder="Scrivi un comando..."
+          placeholderTextColor={theme.mutedForeground}
+          value={value}
+          onChangeText={setValue}
+          returnKeyType="send"
+          editable={appState !== "processing"}
+          onSubmitEditing={submit}
+        />
+        <TouchableOpacity
+          style={[textStyles.sendBtn, { backgroundColor: value.trim() && appState !== "processing" ? theme.primary : theme.border }]}
+          onPress={submit}
+          disabled={!value.trim() || appState === "processing"}
+        >
+          {appState === "processing"
+            ? <ActivityIndicator size={16} color="#fff" />
+            : <Feather name="send" size={16} color="#fff" />}
+        </TouchableOpacity>
+      </View>
+      <Text style={[textStyles.hint, { color: theme.mutedForeground }]}>
+        Il microfono è disponibile nel build nativo
+      </Text>
+    </View>
+  );
+}
+
+const textStyles = StyleSheet.create({
+  area: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, gap: 4 },
+  row: { flexDirection: "row", alignItems: "center", borderRadius: 24, borderWidth: 1, paddingLeft: 16, paddingRight: 6, paddingVertical: 6, gap: 8 },
+  input: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", paddingVertical: 4 },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  hint: { fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 2 },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main screen
+// ─────────────────────────────────────────────────────────────────────────────
 export default function AssistantScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -98,10 +249,8 @@ export default function AssistantScreen() {
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [transcript, setTranscript] = useState("");
-  const [textInput, setTextInput] = useState("");
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [conversationId, setConversationId] = useState<number | null>(null);
-  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
   const [printerGroups, setPrinterGroups] = useState<PrinterGroup[]>([]);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -112,7 +261,7 @@ export default function AssistantScreen() {
     getPrinterGroups().then(setPrinterGroups).catch(() => {});
   }, [serverConfig]);
 
-  // ── Pulse animation ───────────────────────────────────────────────────────
+  // Pulse animation
   useEffect(() => {
     if (appState === "listening") {
       pulseLoop.current = Animated.loop(
@@ -127,31 +276,6 @@ export default function AssistantScreen() {
       Animated.timing(pulseAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     }
   }, [appState]);
-
-  // ── Speech events (no-op when unavailable) ────────────────────────────────
-  useSpeechEventSafe("result", (event) => {
-    const text = event.results[0]?.transcript ?? "";
-    setTranscript(text);
-    if (event.isFinal && text.trim()) {
-      handleTranscriptReady(text.trim());
-    }
-  });
-
-  useSpeechEventSafe("end", () => {
-    if (appState === "listening") setAppState("idle");
-  });
-
-  useSpeechEventSafe("error", (event) => {
-    setAppState("idle");
-    if (event.error !== "no-speech") {
-      Alert.alert("Microfono", `Errore: ${event.error}`);
-    }
-  });
-
-  useEffect(() => {
-    if (!SPEECH_AVAILABLE) return;
-    SpeechModule!.requestPermissionsAsync().then((r) => setHasMicPermission(r.granted));
-  }, []);
 
   // ── Feedback message ──────────────────────────────────────────────────────
   const addFeedback = useCallback((text: string, status: "ok" | "error") => {
@@ -171,10 +295,9 @@ export default function AssistantScreen() {
           if (screen) setTimeout(() => router.push(`/(main)/${screen}` as never), 400);
           break;
         }
-        case "query_summary": {
+        case "query_summary":
           setTimeout(() => router.push("/(main)/summary" as never), 400);
           break;
-        }
         case "query_requests":
           break;
 
@@ -193,7 +316,7 @@ export default function AssistantScreen() {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   addFeedback(`✓ Richiesta "${desc}" approvata.`, "ok");
                 } catch (err) {
-                  addFeedback(`Errore approvazione: ${err instanceof Error ? err.message : "Errore"}`, "error");
+                  addFeedback(`Errore: ${err instanceof Error ? err.message : "Errore"}`, "error");
                 }
               },
             },
@@ -217,7 +340,7 @@ export default function AssistantScreen() {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   addFeedback(`✗ Richiesta "${desc}" rifiutata.`, "ok");
                 } catch (err) {
-                  addFeedback(`Errore rifiuto: ${err instanceof Error ? err.message : "Errore"}`, "error");
+                  addFeedback(`Errore: ${err instanceof Error ? err.message : "Errore"}`, "error");
                 }
               },
             },
@@ -241,7 +364,10 @@ export default function AssistantScreen() {
                 }
                 await refresh();
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                addFeedback(fail === 0 ? `✓ Tutte le ${ok} richieste approvate.` : `✓ ${ok} approvate, ${fail} fallite.`, fail === 0 ? "ok" : "error");
+                addFeedback(
+                  fail === 0 ? `✓ Tutte le ${ok} richieste approvate.` : `✓ ${ok} approvate, ${fail} fallite.`,
+                  fail === 0 ? "ok" : "error"
+                );
               },
             },
           ]);
@@ -255,7 +381,7 @@ export default function AssistantScreen() {
           try {
             await sendPrinterMessage(msg, pgId ? [pgId] : undefined, adminName ?? undefined);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            addFeedback(`✓ Messaggio inviato${pgId ? ` al gruppo ${pgId}` : " a tutte le stampanti"}.`, "ok");
+            addFeedback(`✓ Messaggio inviato${pgId ? ` (gruppo ${pgId})` : " a tutte le stampanti"}.`, "ok");
           } catch (err) {
             addFeedback(`Errore invio: ${err instanceof Error ? err.message : "Errore"}`, "error");
           }
@@ -287,7 +413,6 @@ export default function AssistantScreen() {
     async (text: string) => {
       setAppState("processing");
       setTranscript("");
-      setTextInput("");
 
       setMessages((prev) => [
         ...prev,
@@ -333,7 +458,13 @@ export default function AssistantScreen() {
 
         setMessages((prev) => [
           ...prev,
-          { id: (Date.now() + 1).toString(), role: "assistant", text: data.reply, action: data.action, timestamp: Date.now() },
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            text: data.reply,
+            action: data.action,
+            timestamp: Date.now(),
+          },
         ]);
 
         if (data.action && data.action !== "none") {
@@ -346,7 +477,13 @@ export default function AssistantScreen() {
       } catch (err) {
         setMessages((prev) => [
           ...prev,
-          { id: (Date.now() + 1).toString(), role: "assistant", text: `Errore: ${err instanceof Error ? err.message : "Errore"}`, status: "error", timestamp: Date.now() },
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            text: `Errore: ${err instanceof Error ? err.message : "Errore"}`,
+            status: "error",
+            timestamp: Date.now(),
+          },
         ]);
         setAppState("idle");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -355,29 +492,8 @@ export default function AssistantScreen() {
     [conversationId, adminName, requests, printerGroups, serverConfig, executeAction]
   );
 
-  // ── Toggle mic (native only) ──────────────────────────────────────────────
-  const toggleListening = async () => {
-    if (appState === "listening") {
-      SpeechModule!.stop();
-      setAppState("idle");
-      return;
-    }
-    if (!hasMicPermission) {
-      const result = await SpeechModule!.requestPermissionsAsync();
-      if (!result.granted) {
-        Alert.alert("Microfono", "Permesso microfono necessario.");
-        return;
-      }
-      setHasMicPermission(true);
-    }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setAppState("listening");
-    setTranscript("");
-    SpeechModule!.start({ lang: "it-IT", interimResults: true, maxAlternatives: 1, continuous: false });
-  };
-
   const clearConversation = () => {
-    setMessages([]); setConversationId(null); setTranscript(""); setTextInput("");
+    setMessages([]); setConversationId(null); setTranscript("");
   };
 
   const pendingCount = requests.filter((r) => r.status === "pending").length;
@@ -389,7 +505,9 @@ export default function AssistantScreen() {
         <View>
           <Text style={[styles.headerTitle, { color: theme.foreground }]}>Assistente POS</Text>
           <Text style={[styles.headerSub, { color: theme.mutedForeground }]}>
-            {pendingCount > 0 ? `${pendingCount} richiesta${pendingCount !== 1 ? "e" : ""} in attesa` : "Nessuna richiesta in attesa"}
+            {pendingCount > 0
+              ? `${pendingCount} richiesta${pendingCount !== 1 ? "e" : ""} in attesa`
+              : "Nessuna richiesta in attesa"}
           </Text>
         </View>
         {messages.length > 0 && (
@@ -400,7 +518,12 @@ export default function AssistantScreen() {
       </View>
 
       {/* Messages */}
-      <ScrollView ref={scrollRef} style={{ flex: 1 }} contentContainerStyle={styles.messagesContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.messagesContent}
+        showsVerticalScrollIndicator={false}
+      >
         {messages.length === 0 ? (
           <View style={styles.emptyState}>
             <View style={[styles.emptyIcon, { backgroundColor: theme.primary + "18" }]}>
@@ -432,77 +555,22 @@ export default function AssistantScreen() {
         )}
       </ScrollView>
 
-      {/* Live transcript (native only) */}
-      {appState === "listening" && transcript.length > 0 && (
-        <View style={[styles.transcriptBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Feather name="edit-3" size={14} color={theme.mutedForeground} />
-          <Text style={[styles.transcriptText, { color: theme.mutedForeground }]} numberOfLines={2}>{transcript}</Text>
-        </View>
-      )}
-
-      {/* Input area */}
+      {/* Input: mic (native) or text (Expo Go) */}
       {SPEECH_AVAILABLE ? (
-        /* ── Native: mic button ── */
-        <View style={[styles.micArea, { paddingBottom: 16 }]}>
-          {appState === "processing" ? (
-            <View style={[styles.micBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <ActivityIndicator size={28} color={theme.primary} />
-            </View>
-          ) : (
-            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-              <TouchableOpacity
-                style={[styles.micBtn, {
-                  backgroundColor: appState === "listening" ? theme.primary : theme.card,
-                  borderColor: appState === "listening" ? theme.primary : theme.border,
-                  shadowColor: theme.primary,
-                  shadowOpacity: appState === "listening" ? 0.4 : 0,
-                  shadowRadius: 16,
-                  shadowOffset: { width: 0, height: 4 },
-                  elevation: appState === "listening" ? 8 : 0,
-                }]}
-                onPress={toggleListening}
-                activeOpacity={0.85}
-              >
-                <Feather name="mic" size={30} color={appState === "listening" ? "#fff" : theme.primary} />
-              </TouchableOpacity>
-            </Animated.View>
-          )}
-          <Text style={[styles.micLabel, { color: theme.mutedForeground }]}>
-            {appState === "idle" && "Tocca per parlare"}
-            {appState === "listening" && "In ascolto... tocca per fermare"}
-            {appState === "processing" && "Elaborazione..."}
-          </Text>
-        </View>
+        <MicController
+          appState={appState}
+          transcript={transcript}
+          onTranscriptReady={handleTranscriptReady}
+          onStateChange={setAppState}
+          theme={theme}
+          pulseAnim={pulseAnim}
+        />
       ) : (
-        /* ── Fallback: text input (Expo Go) ── */
-        <View style={[styles.textInputArea, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
-          <View style={[styles.textInputRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <TextInput
-              style={[styles.textInputField, { color: theme.foreground }]}
-              placeholder="Scrivi un comando..."
-              placeholderTextColor={theme.mutedForeground}
-              value={textInput}
-              onChangeText={setTextInput}
-              returnKeyType="send"
-              editable={appState !== "processing"}
-              onSubmitEditing={() => {
-                if (textInput.trim() && appState !== "processing") handleTranscriptReady(textInput.trim());
-              }}
-            />
-            <TouchableOpacity
-              style={[styles.sendBtn, { backgroundColor: textInput.trim() && appState !== "processing" ? theme.primary : theme.border }]}
-              onPress={() => { if (textInput.trim() && appState !== "processing") handleTranscriptReady(textInput.trim()); }}
-              disabled={!textInput.trim() || appState === "processing"}
-            >
-              {appState === "processing"
-                ? <ActivityIndicator size={16} color="#fff" />
-                : <Feather name="send" size={16} color="#fff" />}
-            </TouchableOpacity>
-          </View>
-          <Text style={[styles.micLabel, { color: theme.mutedForeground, marginTop: 4 }]}>
-            Il microfono è disponibile nel build nativo
-          </Text>
-        </View>
+        <TextInputController
+          appState={appState}
+          onSubmit={handleTranscriptReady}
+          theme={theme}
+        />
       )}
 
       <BottomTabBar />
@@ -510,6 +578,9 @@ export default function AssistantScreen() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Message bubble
+// ─────────────────────────────────────────────────────────────────────────────
 function MessageBubble({ message, theme }: { message: AIMessage; theme: typeof colors.dark }) {
   const isUser = message.role === "user";
   const isError = message.status === "error";
@@ -523,8 +594,11 @@ function MessageBubble({ message, theme }: { message: AIMessage; theme: typeof c
     <View style={[styles.bubbleRow, isUser ? styles.bubbleRight : styles.bubbleLeft]}>
       {!isUser && (
         <View style={[styles.avatar, { backgroundColor: isError ? theme.destructive + "20" : isOk ? theme.success + "20" : theme.primary + "20" }]}>
-          <Feather name={isError ? "alert-circle" : isOk ? "check-circle" : "cpu"} size={14}
-            color={isError ? theme.destructive : isOk ? theme.success : theme.primary} />
+          <Feather
+            name={isError ? "alert-circle" : isOk ? "check-circle" : "cpu"}
+            size={14}
+            color={isError ? theme.destructive : isOk ? theme.success : theme.primary}
+          />
         </View>
       )}
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant, { backgroundColor: bubbleBg, borderColor: bubbleBorder }]}>
@@ -532,7 +606,9 @@ function MessageBubble({ message, theme }: { message: AIMessage; theme: typeof c
         {message.action && message.action !== "none" && !isOk && !isError && (
           <View style={[styles.actionBadge, { backgroundColor: isUser ? "rgba(255,255,255,0.2)" : theme.primary + "18" }]}>
             <Feather name="zap" size={11} color={isUser ? "#fff" : theme.primary} />
-            <Text style={[styles.actionBadgeText, { color: isUser ? "#fff" : theme.primary }]}>{actionLabel(message.action)}</Text>
+            <Text style={[styles.actionBadgeText, { color: isUser ? "#fff" : theme.primary }]}>
+              {actionLabel(message.action)}
+            </Text>
           </View>
         )}
       </View>
@@ -586,13 +662,4 @@ const styles = StyleSheet.create({
   bubbleText: { fontSize: 15, fontFamily: "Inter_400Regular", lineHeight: 22 },
   actionBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, alignSelf: "flex-start" },
   actionBadgeText: { fontSize: 11, fontFamily: "Inter_600SemiBold" },
-  transcriptBar: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 8, padding: 12, borderRadius: 12, borderWidth: 1 },
-  transcriptText: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", fontStyle: "italic" },
-  micArea: { alignItems: "center", paddingTop: 16, gap: 10 },
-  micBtn: { width: 76, height: 76, borderRadius: 38, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
-  micLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  textInputArea: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, gap: 4 },
-  textInputRow: { flexDirection: "row", alignItems: "center", borderRadius: 24, borderWidth: 1, paddingLeft: 16, paddingRight: 6, paddingVertical: 6, gap: 8 },
-  textInputField: { flex: 1, fontSize: 15, fontFamily: "Inter_400Regular", paddingVertical: 4 },
-  sendBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
 });
