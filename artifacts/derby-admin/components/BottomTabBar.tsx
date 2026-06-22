@@ -38,6 +38,11 @@ const TABS = [
     icon: "printer" as const,
     label: "Messaggi",
   },
+  {
+    href: "/(main)/assistant" as const,
+    icon: "mic" as const,
+    label: "Assistente",
+  },
 ] as const;
 
 export function BottomTabBar() {
@@ -68,7 +73,7 @@ export function BottomTabBar() {
             style={styles.tab}
             onPress={() => {
               if (!isActive) {
-                router.replace(tab.href);
+                router.replace(tab.href as never);
               }
             }}
             activeOpacity={0.7}

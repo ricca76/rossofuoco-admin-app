@@ -59,6 +59,7 @@
     "expo-camera": "^17.0.10",
     "expo-local-authentication": "^17.0.8",
     "expo-network": "^8.0.8",
-    "expo-notifications": "^0.32.17"
+    "expo-notifications": "^0.32.17",
+    "expo-speech-recognition": "^56.0.1"
   }
 }
