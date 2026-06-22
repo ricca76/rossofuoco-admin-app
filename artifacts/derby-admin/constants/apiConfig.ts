@@ -1,4 +1,3 @@
-// URL del server Replit (backend AI). Aggiornare con il dominio pubblicato.
-// Formato: https://<nome-repl>.replit.app
-// Per trovarlo: apri il Repl → Deploy → copia il dominio di produzione.
-export const REPLIT_API_BASE = "https://rossofuoco-app.replit.app";
+// URL del server Replit (backend AI). Stabile per questo Repl (basato sull'ID).
+export const REPLIT_API_BASE =
+  "https://58085b1e-2760-47a0-a224-211e99a290af-00-wwoux9i71mt6.riker.replit.dev";
