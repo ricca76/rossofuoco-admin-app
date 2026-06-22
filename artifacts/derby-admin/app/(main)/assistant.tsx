@@ -21,6 +21,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
+import { REPLIT_API_BASE } from "@/constants/apiConfig";
 import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
 import { BottomTabBar } from "@/components/BottomTabBar";
@@ -36,7 +37,7 @@ import {
 // The JS import above always succeeds; the native module may not exist in Expo Go.
 const SPEECH_AVAILABLE = !!NativeModules.ExpoSpeechRecognitionModule;
 
-const API_BASE = "";
+const API_BASE = REPLIT_API_BASE;
 
 interface AIMessage {
   id: string;

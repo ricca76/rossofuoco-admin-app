@@ -38,6 +38,11 @@ import FaceAuthModal from "@/components/FaceAuthModal";
 const DEFAULT_IP = "192.168.0.177";
 const DEFAULT_PORT = 51521;
 
+function normalizeServerUrl(url: string): string {
+  if (!url || url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `https://${url}`;
+}
+
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -58,6 +63,8 @@ export default function LoginScreen() {
 
   const [ip, setIp] = useState(serverConfig?.ip ?? DEFAULT_IP);
   const [port, setPort] = useState(String(serverConfig?.port ?? DEFAULT_PORT));
+  const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : "local");
+  const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? "");
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
@@ -122,14 +129,20 @@ export default function LoginScreen() {
   };
 
   const handleTestConnection = async () => {
-    if (!ip.trim()) {
+    if (mode === "remote" && !remoteUrl.trim()) {
+      Alert.alert("Campo mancante", "Inserisci l'URL del server remoto.");
+      return;
+    }
+    if (mode === "local" && !ip.trim()) {
       Alert.alert("Campo mancante", "Inserisci l'indirizzo IP del server.");
       return;
     }
     setTestingConn(true);
     setConnOk(null);
     clearError();
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
+    const config: ServerConfig = mode === "remote"
+      ? { ip: "", port: DEFAULT_PORT, baseUrl: normalizeServerUrl(remoteUrl.trim()) }
+      : { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
     const ok = await testConnection(config);
     setConnOk(ok);
     setTestingConn(false);
@@ -153,7 +166,11 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!ip.trim()) {
+    if (mode === "remote" && !remoteUrl.trim()) {
+      Alert.alert("Campo mancante", "Inserisci l'URL del server remoto.");
+      return;
+    }
+    if (mode === "local" && !ip.trim()) {
       Alert.alert("Campo mancante", "Inserisci l'indirizzo IP del server.");
       return;
     }
@@ -161,7 +178,9 @@ export default function LoginScreen() {
       Alert.alert("Campo mancante", "Inserisci il PIN admin.");
       return;
     }
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
+    const config: ServerConfig = mode === "remote"
+      ? { ip: "", port: DEFAULT_PORT, baseUrl: normalizeServerUrl(remoteUrl.trim()) }
+      : { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
     await saveServerConfig(config);
     await signIn({ pin: pin.trim() });
   };
@@ -257,93 +276,124 @@ export default function LoginScreen() {
             <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
               SERVER
             </Text>
+            {mode === "local" && (
+              <TouchableOpacity
+                style={[
+                  styles.scannerBtn,
+                  { backgroundColor: theme.primary + "15", borderColor: theme.primary + "40" },
+                ]}
+                onPress={() => setScannerVisible(true)}
+              >
+                <Feather name="radio" size={13} color={theme.primary} />
+                <Text style={[styles.scannerBtnText, { color: theme.primary }]}>
+                  Scansiona
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Modalità connessione */}
+          <View style={[styles.modeToggle, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <TouchableOpacity
-              style={[
-                styles.scannerBtn,
-                { backgroundColor: theme.primary + "15", borderColor: theme.primary + "40" },
-              ]}
-              onPress={() => setScannerVisible(true)}
+              style={[styles.modeBtn, mode === "local" && { backgroundColor: theme.primary }]}
+              onPress={() => { setMode("local"); setConnOk(null); setAdminUsers([]); setSelectedUser(null); clearError(); }}
+              activeOpacity={0.8}
             >
-              <Feather name="radio" size={13} color={theme.primary} />
-              <Text style={[styles.scannerBtnText, { color: theme.primary }]}>
-                Scansiona
+              <Feather name="wifi" size={13} color={mode === "local" ? "#fff" : theme.mutedForeground} />
+              <Text style={[styles.modeBtnText, { color: mode === "local" ? "#fff" : theme.mutedForeground }]}>
+                Rete locale
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === "remote" && { backgroundColor: theme.primary }]}
+              onPress={() => { setMode("remote"); setConnOk(null); setAdminUsers([]); setSelectedUser(null); clearError(); }}
+              activeOpacity={0.8}
+            >
+              <Feather name="globe" size={13} color={mode === "remote" ? "#fff" : theme.mutedForeground} />
+              <Text style={[styles.modeBtnText, { color: mode === "remote" ? "#fff" : theme.mutedForeground }]}>
+                Accesso remoto
               </Text>
             </TouchableOpacity>
           </View>
 
-          <View
-            style={[
-              styles.inputGroup,
-              { borderColor: theme.border, backgroundColor: theme.card },
-            ]}
-          >
-            {/* IP */}
-            <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
-              <Feather name="server" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: theme.foreground }]}
-                placeholder={`IP (default: ${DEFAULT_IP})`}
-                placeholderTextColor={theme.mutedForeground}
-                value={ip}
-                onChangeText={(t) => {
-                  setIp(t);
-                  setConnOk(null);
-                  setAdminUsers([]);
-                  setSelectedUser(null);
-                  clearError();
-                }}
-                keyboardType="numbers-and-punctuation"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity
-                style={[
-                  styles.testBtn,
-                  {
-                    backgroundColor:
-                      connOk === true
-                        ? theme.success + "20"
-                        : connOk === false
-                        ? theme.destructive + "20"
-                        : theme.primary + "15",
-                  },
-                ]}
-                onPress={handleTestConnection}
-                disabled={testingConn}
-              >
-                {testingConn ? (
-                  <ActivityIndicator size={14} color={theme.primary} />
-                ) : (
-                  <Feather
-                    name={connOk === true ? "check" : connOk === false ? "x" : "wifi"}
-                    size={14}
-                    color={connOk === true ? theme.success : connOk === false ? theme.destructive : theme.primary}
-                  />
-                )}
-              </TouchableOpacity>
+          {mode === "local" ? (
+            <View style={[styles.inputGroup, { borderColor: theme.border, backgroundColor: theme.card }]}>
+              {/* IP */}
+              <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
+                <Feather name="server" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
+                <TextInput
+                  style={[styles.input, { color: theme.foreground }]}
+                  placeholder={`IP (default: ${DEFAULT_IP})`}
+                  placeholderTextColor={theme.mutedForeground}
+                  value={ip}
+                  onChangeText={(t) => { setIp(t); setConnOk(null); setAdminUsers([]); setSelectedUser(null); clearError(); }}
+                  keyboardType="numbers-and-punctuation"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity
+                  style={[styles.testBtn, { backgroundColor: connOk === true ? theme.success + "20" : connOk === false ? theme.destructive + "20" : theme.primary + "15" }]}
+                  onPress={handleTestConnection}
+                  disabled={testingConn}
+                >
+                  {testingConn ? (
+                    <ActivityIndicator size={14} color={theme.primary} />
+                  ) : (
+                    <Feather
+                      name={connOk === true ? "check" : connOk === false ? "x" : "wifi"}
+                      size={14}
+                      color={connOk === true ? theme.success : connOk === false ? theme.destructive : theme.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
+              {/* Porta */}
+              <View style={styles.inputRow}>
+                <Feather name="radio" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
+                <TextInput
+                  style={[styles.input, { color: theme.foreground }]}
+                  placeholder={`Porta (default: ${DEFAULT_PORT})`}
+                  placeholderTextColor={theme.mutedForeground}
+                  value={port}
+                  onChangeText={(t) => { setPort(t); setConnOk(null); setAdminUsers([]); setSelectedUser(null); clearError(); }}
+                  keyboardType="number-pad"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
             </View>
-
-            {/* Porta modificabile */}
-            <View style={styles.inputRow}>
-              <Feather name="radio" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: theme.foreground }]}
-                placeholder={`Porta (default: ${DEFAULT_PORT})`}
-                placeholderTextColor={theme.mutedForeground}
-                value={port}
-                onChangeText={(t) => {
-                  setPort(t);
-                  setConnOk(null);
-                  setAdminUsers([]);
-                  setSelectedUser(null);
-                  clearError();
-                }}
-                keyboardType="number-pad"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
+          ) : (
+            <View style={[styles.inputGroup, { borderColor: theme.border, backgroundColor: theme.card }]}>
+              <View style={styles.inputRow}>
+                <Feather name="globe" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
+                <TextInput
+                  style={[styles.input, { color: theme.foreground }]}
+                  placeholder="https://rossofuoco.eu"
+                  placeholderTextColor={theme.mutedForeground}
+                  value={remoteUrl}
+                  onChangeText={(t) => { setRemoteUrl(t); setConnOk(null); setAdminUsers([]); setSelectedUser(null); clearError(); }}
+                  keyboardType="url"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity
+                  style={[styles.testBtn, { backgroundColor: connOk === true ? theme.success + "20" : connOk === false ? theme.destructive + "20" : theme.primary + "15" }]}
+                  onPress={handleTestConnection}
+                  disabled={testingConn}
+                >
+                  {testingConn ? (
+                    <ActivityIndicator size={14} color={theme.primary} />
+                  ) : (
+                    <Feather
+                      name={connOk === true ? "check" : connOk === false ? "x" : "wifi"}
+                      size={14}
+                      color={connOk === true ? theme.success : connOk === false ? theme.destructive : theme.primary}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          )}
 
           {connOk === true && (
             <Text style={[styles.hint, { color: theme.success }]}>
@@ -548,6 +598,23 @@ const styles = StyleSheet.create({
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
   dividerText: { fontSize: 13, fontFamily: "Inter_400Regular" },
 
+  modeToggle: {
+    flexDirection: "row",
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: "hidden",
+    marginBottom: 4,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 9,
+    borderRadius: 10,
+  },
+  modeBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   form: { gap: 8 },
   sectionRow: {
     flexDirection: "row",

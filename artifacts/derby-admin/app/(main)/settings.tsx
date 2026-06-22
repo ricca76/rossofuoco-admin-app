@@ -19,6 +19,11 @@ import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { ServerConfig, testConnection } from "@/services/derbyApi";
 
+function normalizeServerUrl(url: string): string {
+  if (!url || url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `https://${url}`;
+}
+
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -28,14 +33,21 @@ export default function SettingsScreen() {
 
   const [ip, setIp] = useState(serverConfig?.ip ?? "");
   const [port, setPort] = useState(String(serverConfig?.port ?? "51521"));
+  const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : "local");
+  const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? "");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connStatus, setConnStatus] = useState<"ok" | "fail" | null>(null);
 
+  const buildConfig = (): ServerConfig =>
+    mode === "remote"
+      ? { ip: "", port: 51521, baseUrl: normalizeServerUrl(remoteUrl.trim()) }
+      : { ip: ip.trim(), port: Number(port) || 51521 };
+
   const handleTest = async () => {
     setTesting(true);
     setConnStatus(null);
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
+    const config = buildConfig();
     const ok = await testConnection(config);
     setConnStatus(ok ? "ok" : "fail");
     setTesting(false);
@@ -47,12 +59,16 @@ export default function SettingsScreen() {
   };
 
   const handleSave = async () => {
-    if (!ip.trim()) {
+    if (mode === "local" && !ip.trim()) {
       Alert.alert("Campo mancante", "Inserisci l'indirizzo IP.");
       return;
     }
+    if (mode === "remote" && !remoteUrl.trim()) {
+      Alert.alert("Campo mancante", "Inserisci l'URL del server remoto.");
+      return;
+    }
     setSaving(true);
-    const config: ServerConfig = { ip: ip.trim(), port: Number(port) || 51521 };
+    const config = buildConfig();
     await saveServerConfig(config);
     setSaving(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -103,43 +119,84 @@ export default function SettingsScreen() {
       <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
         CONNESSIONE SERVER
       </Text>
-      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
-          <Feather name="server" size={15} color={theme.mutedForeground} style={styles.inputIcon} />
-          <Text style={[styles.inputLabel, { color: theme.mutedForeground }]}>
-            Indirizzo IP
+
+      {/* Modalità connessione */}
+      <View style={[styles.modeToggle, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <TouchableOpacity
+          style={[styles.modeBtn, mode === "local" && { backgroundColor: theme.primary }]}
+          onPress={() => { setMode("local"); setConnStatus(null); }}
+          activeOpacity={0.8}
+        >
+          <Feather name="wifi" size={13} color={mode === "local" ? "#fff" : theme.mutedForeground} />
+          <Text style={[styles.modeBtnText, { color: mode === "local" ? "#fff" : theme.mutedForeground }]}>
+            Rete locale
           </Text>
-          <TextInput
-            style={[styles.inputValue, { color: theme.foreground }]}
-            value={ip}
-            onChangeText={(t) => { setIp(t); setConnStatus(null); }}
-            placeholder="192.168.1.10"
-            placeholderTextColor={theme.mutedForeground}
-            keyboardType="numbers-and-punctuation"
-            autoCapitalize="none"
-            autoCorrect={false}
-            textAlign="right"
-          />
-        </View>
-        <View style={styles.inputRow}>
-          <Feather name="radio" size={15} color={theme.mutedForeground} style={styles.inputIcon} />
-          <Text style={[styles.inputLabel, { color: theme.mutedForeground }]}>
-            Porta
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeBtn, mode === "remote" && { backgroundColor: theme.primary }]}
+          onPress={() => { setMode("remote"); setConnStatus(null); }}
+          activeOpacity={0.8}
+        >
+          <Feather name="globe" size={13} color={mode === "remote" ? "#fff" : theme.mutedForeground} />
+          <Text style={[styles.modeBtnText, { color: mode === "remote" ? "#fff" : theme.mutedForeground }]}>
+            Accesso remoto
           </Text>
-          <TextInput
-            style={[styles.inputValue, { color: theme.foreground }]}
-            value={port}
-            onChangeText={(t) => { setPort(t); setConnStatus(null); }}
-            placeholder="51521"
-            placeholderTextColor={theme.mutedForeground}
-            keyboardType="number-pad"
-            textAlign="right"
-          />
-        </View>
+        </TouchableOpacity>
       </View>
 
+      {mode === "local" ? (
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
+            <Feather name="server" size={15} color={theme.mutedForeground} style={styles.inputIcon} />
+            <Text style={[styles.inputLabel, { color: theme.mutedForeground }]}>Indirizzo IP</Text>
+            <TextInput
+              style={[styles.inputValue, { color: theme.foreground }]}
+              value={ip}
+              onChangeText={(t) => { setIp(t); setConnStatus(null); }}
+              placeholder="192.168.1.10"
+              placeholderTextColor={theme.mutedForeground}
+              keyboardType="numbers-and-punctuation"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textAlign="right"
+            />
+          </View>
+          <View style={styles.inputRow}>
+            <Feather name="radio" size={15} color={theme.mutedForeground} style={styles.inputIcon} />
+            <Text style={[styles.inputLabel, { color: theme.mutedForeground }]}>Porta</Text>
+            <TextInput
+              style={[styles.inputValue, { color: theme.foreground }]}
+              value={port}
+              onChangeText={(t) => { setPort(t); setConnStatus(null); }}
+              placeholder="51521"
+              placeholderTextColor={theme.mutedForeground}
+              keyboardType="number-pad"
+              textAlign="right"
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={styles.inputRow}>
+            <Feather name="globe" size={15} color={theme.mutedForeground} style={styles.inputIcon} />
+            <Text style={[styles.inputLabel, { color: theme.mutedForeground }]}>URL server</Text>
+            <TextInput
+              style={[styles.inputValue, { color: theme.foreground }]}
+              value={remoteUrl}
+              onChangeText={(t) => { setRemoteUrl(t); setConnStatus(null); }}
+              placeholder="https://rossofuoco.eu"
+              placeholderTextColor={theme.mutedForeground}
+              keyboardType="url"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textAlign="right"
+            />
+          </View>
+        </View>
+      )}
+
       <Text style={[styles.portHint, { color: theme.mutedForeground }]}>
-        Porta default Rosso Fuoco Console: 51521
+        {mode === "local" ? "Porta default Rosso Fuoco Console: 51521" : "Es. https://rossofuoco.eu · https://tuoserver.com"}
       </Text>
 
       {connStatus && (
@@ -225,6 +282,22 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   scroll: { padding: 20, gap: 10 },
+  modeToggle: {
+    flexDirection: "row",
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  modeBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   sectionLabel: {
     fontSize: 11,
     fontFamily: "Inter_600SemiBold",

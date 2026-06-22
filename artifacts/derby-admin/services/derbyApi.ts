@@ -1,6 +1,8 @@
 export interface ServerConfig {
   ip: string;
   port: number;
+  /** Se impostato, sovrascrive http://ip:port — supporta https e domini esterni */
+  baseUrl?: string;
 }
 
 export interface AdminCredentials {
@@ -38,7 +40,11 @@ export interface LoginResponse {
 let _baseUrl = "";
 
 export function configureApi(config: ServerConfig) {
-  _baseUrl = `http://${config.ip}:${config.port}`;
+  if (config.baseUrl?.trim()) {
+    _baseUrl = config.baseUrl.trim().replace(/\/$/, "");
+  } else {
+    _baseUrl = `http://${config.ip}:${config.port}`;
+  }
 }
 
 export function getBaseUrl() {
@@ -504,17 +510,17 @@ export async function sendPrinterMessage(
 // ── Connection test ───────────────────────────────────────────────────────────
 
 export async function testConnection(config: ServerConfig): Promise<boolean> {
+  const base = config.baseUrl?.trim()
+    ? config.baseUrl.trim().replace(/\/$/, "")
+    : `http://${config.ip}:${config.port}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 4000);
   try {
-    const response = await fetch(
-      `http://${config.ip}:${config.port}/api/healthz`,
-      {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      }
-    );
+    const response = await fetch(`${base}/api/healthz`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
     clearTimeout(timer);
     return response.status === 200;
   } catch {
