@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,24 +22,26 @@ import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
 import { BottomTabBar } from "@/components/BottomTabBar";
+import {
+  resolveRequest,
+  sendPrinterMessage,
+  reprintTicket,
+  getPrinterGroups,
+  type PrinterGroup,
+} from "@/services/derbyApi";
 
-const API_BASE = (() => {
-  if (typeof __DEV__ !== "undefined" && __DEV__) {
-    return "";
-  }
-  return "";
-})();
+const API_BASE = "";
 
 interface AIMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   action?: string;
-  params?: Record<string, unknown>;
+  status?: "ok" | "error" | "pending";
   timestamp: number;
 }
 
-type AppState = "idle" | "listening" | "processing" | "speaking";
+type AppState = "idle" | "listening" | "processing";
 
 export default function AssistantScreen() {
   const insets = useSafeAreaInsets();
@@ -48,17 +49,23 @@ export default function AssistantScreen() {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
   const { adminName, serverConfig } = useAuth();
-  const { requests } = useRequests();
+  const { requests, refresh } = useRequests();
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [transcript, setTranscript] = useState("");
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
+  const [printerGroups, setPrinterGroups] = useState<PrinterGroup[]>([]);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const scrollRef = useRef<ScrollView>(null);
   const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
+
+  // ── Load printer groups once ──────────────────────────────────────────────
+  useEffect(() => {
+    getPrinterGroups().then(setPrinterGroups).catch(() => {});
+  }, [serverConfig]);
 
   // ── Pulse animation while listening ──────────────────────────────────────
   useEffect(() => {
@@ -76,7 +83,7 @@ export default function AssistantScreen() {
     }
   }, [appState]);
 
-  // ── Speech recognition events ─────────────────────────────────────────────
+  // ── Speech events ─────────────────────────────────────────────────────────
   useSpeechRecognitionEvent("result", (event) => {
     const text = event.results[0]?.transcript ?? "";
     setTranscript(text);
@@ -86,9 +93,7 @@ export default function AssistantScreen() {
   });
 
   useSpeechRecognitionEvent("end", () => {
-    if (appState === "listening") {
-      setAppState("idle");
-    }
+    if (appState === "listening") setAppState("idle");
   });
 
   useSpeechRecognitionEvent("error", (event) => {
@@ -100,10 +105,194 @@ export default function AssistantScreen() {
 
   // ── Request mic permission ────────────────────────────────────────────────
   useEffect(() => {
-    ExpoSpeechRecognitionModule.requestPermissionsAsync().then((result) => {
-      setHasMicPermission(result.granted);
-    });
+    ExpoSpeechRecognitionModule.requestPermissionsAsync().then((r) =>
+      setHasMicPermission(r.granted)
+    );
   }, []);
+
+  // ── Helper: add assistant feedback message ────────────────────────────────
+  const addFeedback = useCallback((text: string, status: "ok" | "error") => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString() + "_fb",
+        role: "assistant",
+        text,
+        status,
+        timestamp: Date.now(),
+      },
+    ]);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
+  }, []);
+
+  // ── Execute action (POS calls happen here) ────────────────────────────────
+  const executeAction = useCallback(
+    async (action: string, params: Record<string, unknown>) => {
+      switch (action) {
+        // ── Navigation ──────────────────────────────────────────────────────
+        case "navigate": {
+          const screen = params.screen as string;
+          if (screen) setTimeout(() => router.push(`/(main)/${screen}` as never), 400);
+          break;
+        }
+
+        case "query_summary": {
+          setTimeout(() => router.push("/(main)/summary" as never), 400);
+          break;
+        }
+
+        case "query_requests": {
+          // nothing to execute — Claude already answered with count in reply
+          break;
+        }
+
+        // ── Approve single request ───────────────────────────────────────────
+        case "pos_approve": {
+          const reqId = params.requestId as string;
+          const desc = (params.description as string) ?? "questa richiesta";
+          if (!reqId) break;
+          Alert.alert(
+            "Conferma approvazione",
+            `Approvare "${desc}"?`,
+            [
+              { text: "Annulla", style: "cancel" },
+              {
+                text: "Approva",
+                style: "default",
+                onPress: async () => {
+                  try {
+                    await resolveRequest(reqId, true, adminName ?? undefined);
+                    await refresh();
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    addFeedback(`✓ Richiesta "${desc}" approvata.`, "ok");
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Errore";
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    addFeedback(`Errore approvazione: ${msg}`, "error");
+                  }
+                },
+              },
+            ]
+          );
+          break;
+        }
+
+        // ── Deny single request ──────────────────────────────────────────────
+        case "pos_deny": {
+          const reqId = params.requestId as string;
+          const desc = (params.description as string) ?? "questa richiesta";
+          if (!reqId) break;
+          Alert.alert(
+            "Conferma rifiuto",
+            `Rifiutare "${desc}"?`,
+            [
+              { text: "Annulla", style: "cancel" },
+              {
+                text: "Rifiuta",
+                style: "destructive",
+                onPress: async () => {
+                  try {
+                    await resolveRequest(reqId, false, adminName ?? undefined);
+                    await refresh();
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                    addFeedback(`✗ Richiesta "${desc}" rifiutata.`, "ok");
+                  } catch (err) {
+                    const msg = err instanceof Error ? err.message : "Errore";
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                    addFeedback(`Errore rifiuto: ${msg}`, "error");
+                  }
+                },
+              },
+            ]
+          );
+          break;
+        }
+
+        // ── Approve ALL pending requests ─────────────────────────────────────
+        case "pos_approve_all": {
+          const ids = params.requestIds as string[] | undefined;
+          const count = (params.count as number) ?? ids?.length ?? 0;
+          if (!ids || ids.length === 0) {
+            addFeedback("Nessuna richiesta in attesa da approvare.", "ok");
+            break;
+          }
+          Alert.alert(
+            "Conferma approvazione multipla",
+            `Approvare tutte le ${count} richieste in attesa?`,
+            [
+              { text: "Annulla", style: "cancel" },
+              {
+                text: `Approva tutte (${count})`,
+                style: "default",
+                onPress: async () => {
+                  let ok = 0;
+                  let fail = 0;
+                  for (const id of ids) {
+                    try {
+                      await resolveRequest(id, true, adminName ?? undefined);
+                      ok++;
+                    } catch {
+                      fail++;
+                    }
+                  }
+                  await refresh();
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  addFeedback(
+                    fail === 0
+                      ? `✓ Tutte le ${ok} richieste approvate.`
+                      : `✓ ${ok} approvate, ${fail} fallite.`,
+                    fail === 0 ? "ok" : "error"
+                  );
+                },
+              },
+            ]
+          );
+          break;
+        }
+
+        // ── Send printer message ─────────────────────────────────────────────
+        case "pos_send_message": {
+          const msg = (params.message as string) ?? "";
+          const pgId = params.pgId as string | null | undefined;
+          if (!msg.trim()) break;
+          try {
+            const pgIds = pgId ? [pgId] : undefined;
+            await sendPrinterMessage(msg, pgIds, adminName ?? undefined);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            addFeedback(
+              `✓ Messaggio inviato${pgId ? ` al gruppo ${pgId}` : " a tutte le stampanti"}.`,
+              "ok"
+            );
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : "Errore";
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            addFeedback(`Errore invio messaggio: ${errMsg}`, "error");
+          }
+          break;
+        }
+
+        // ── Reprint ticket ───────────────────────────────────────────────────
+        case "pos_reprint": {
+          const ticketId = params.ticketId as string;
+          if (!ticketId) break;
+          try {
+            await reprintTicket(ticketId);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            addFeedback(`✓ Scontrino ${ticketId} inviato alla stampante.`, "ok");
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : "Errore";
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+            addFeedback(`Errore ristampa: ${errMsg}`, "error");
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    },
+    [adminName, refresh, addFeedback]
+  );
 
   // ── Send to Claude ────────────────────────────────────────────────────────
   const handleTranscriptReady = useCallback(
@@ -120,15 +309,29 @@ export default function AssistantScreen() {
       setMessages((prev) => [...prev, userMsg]);
 
       try {
+        const pending = requests.filter((r) => r.status === "pending");
         const context = {
           adminName: adminName ?? "Amministratore",
-          pendingRequestsCount: requests.filter((r) => r.status === "pending").length,
-          pendingRequests: requests
-            .filter((r) => r.status === "pending")
-            .slice(0, 5)
-            .map((r) => ({ id: r.id, type: r.type, description: r.description, operator: r.operatorName })),
+          pendingRequestsCount: pending.length,
+          pendingRequests: pending.map((r) => {
+            const amount =
+              (r.payload?.amount as number | undefined) ??
+              (r.payload?.total as number | undefined) ??
+              (r.payload?.price as number | undefined) ??
+              null;
+            return {
+              id: r.id,
+              type: r.type,
+              description: r.description,
+              operator: r.operatorName,
+              tableNum: r.tableNum,
+              amount,
+            };
+          }),
+          printerGroups: printerGroups.map((pg) => ({ id: pg.pgId, name: pg.pgName })),
           serverIp: serverConfig?.ip ?? null,
           currentTime: new Date().toLocaleTimeString("it-IT"),
+          currentDate: new Date().toLocaleDateString("it-IT"),
         };
 
         const response = await fetch(`${API_BASE}/api/ai/chat`, {
@@ -141,11 +344,9 @@ export default function AssistantScreen() {
           }),
         });
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        const data = await response.json() as {
+        const data = (await response.json()) as {
           ok: boolean;
           conversationId: number;
           action: string;
@@ -163,12 +364,10 @@ export default function AssistantScreen() {
           role: "assistant",
           text: data.reply,
           action: data.action,
-          params: data.params,
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
 
-        // Execute action
         if (data.action && data.action !== "none") {
           await executeAction(data.action, data.params);
         }
@@ -178,40 +377,22 @@ export default function AssistantScreen() {
         setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 100);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Errore";
-        const errMsg: AIMessage = {
-          id: (Date.now() + 1).toString(),
-          role: "assistant",
-          text: `Non riesco a elaborare il comando. ${msg}`,
-          timestamp: Date.now(),
-        };
-        setMessages((prev) => [...prev, errMsg]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            text: `Non riesco a elaborare il comando. ${msg}`,
+            status: "error",
+            timestamp: Date.now(),
+          },
+        ]);
         setAppState("idle");
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       }
     },
-    [conversationId, adminName, requests, serverConfig]
+    [conversationId, adminName, requests, printerGroups, serverConfig, executeAction]
   );
-
-  // ── Execute action ────────────────────────────────────────────────────────
-  const executeAction = async (action: string, params: Record<string, unknown>) => {
-    switch (action) {
-      case "navigate":
-        const screen = params.screen as string;
-        if (screen) {
-          setTimeout(() => router.push(`/(main)/${screen}` as never), 400);
-        }
-        break;
-      case "approve_request":
-      case "deny_request":
-        const reqId = params.requestId as string;
-        if (reqId) {
-          setTimeout(() => router.push(`/(main)/request/${reqId}` as never), 400);
-        }
-        break;
-      default:
-        break;
-    }
-  };
 
   // ── Start / Stop listening ────────────────────────────────────────────────
   const toggleListening = async () => {
@@ -265,11 +446,11 @@ export default function AssistantScreen() {
       >
         <View>
           <Text style={[styles.headerTitle, { color: theme.foreground }]}>
-            Assistente vocale
+            Assistente POS
           </Text>
           <Text style={[styles.headerSub, { color: theme.mutedForeground }]}>
             {pendingCount > 0
-              ? `${pendingCount} richiesta${pendingCount > 1 ? "e" : ""} in attesa`
+              ? `${pendingCount} richiesta${pendingCount !== 1 ? "e" : ""} in attesa`
               : "Nessuna richiesta in attesa"}
           </Text>
         </View>
@@ -293,13 +474,11 @@ export default function AssistantScreen() {
               <Feather name="mic" size={36} color={theme.primary} />
             </View>
             <Text style={[styles.emptyTitle, { color: theme.foreground }]}>
-              Cosa posso fare per te?
+              Comanda il POS con la voce
             </Text>
             <Text style={[styles.emptyHint, { color: theme.mutedForeground }]}>
-              Tocca il microfono e parla in italiano.{"\n"}Puoi chiedermi di navigare, gestire richieste, inviare messaggi e molto altro.
+              Approva richieste, invia messaggi alle stampanti, ristampa scontrini e molto altro.
             </Text>
-
-            {/* Suggestions */}
             <View style={styles.suggestions}>
               {SUGGESTIONS.map((s) => (
                 <TouchableOpacity
@@ -321,7 +500,7 @@ export default function AssistantScreen() {
       </ScrollView>
 
       {/* Live transcript */}
-      {(appState === "listening" && transcript.length > 0) && (
+      {appState === "listening" && transcript.length > 0 && (
         <View style={[styles.transcriptBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Feather name="edit-3" size={14} color={theme.mutedForeground} />
           <Text style={[styles.transcriptText, { color: theme.mutedForeground }]} numberOfLines={2}>
@@ -330,7 +509,7 @@ export default function AssistantScreen() {
         </View>
       )}
 
-      {/* Mic button area */}
+      {/* Mic button */}
       <View style={[styles.micArea, { paddingBottom: 16 }]}>
         {appState === "processing" ? (
           <View style={[styles.micBtn, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -355,14 +534,13 @@ export default function AssistantScreen() {
               activeOpacity={0.85}
             >
               <Feather
-                name={appState === "listening" ? "mic" : "mic"}
+                name="mic"
                 size={30}
                 color={appState === "listening" ? "#fff" : theme.primary}
               />
             </TouchableOpacity>
           </Animated.View>
         )}
-
         <Text style={[styles.micLabel, { color: theme.mutedForeground }]}>
           {appState === "idle" && "Tocca per parlare"}
           {appState === "listening" && "In ascolto... tocca per fermare"}
@@ -383,27 +561,64 @@ function MessageBubble({
   theme: typeof colors.dark;
 }) {
   const isUser = message.role === "user";
+  const isError = message.status === "error";
+  const isOk = message.status === "ok";
+
+  const bubbleBg = isUser
+    ? theme.primary
+    : isError
+    ? theme.destructive + "18"
+    : isOk
+    ? theme.success + "18"
+    : theme.card;
+
+  const bubbleBorder = isUser
+    ? theme.primary
+    : isError
+    ? theme.destructive + "60"
+    : isOk
+    ? theme.success + "60"
+    : theme.border;
+
+  const textColor = isUser ? "#fff" : isError ? theme.destructive : theme.foreground;
 
   return (
     <View style={[styles.bubbleRow, isUser ? styles.bubbleRight : styles.bubbleLeft]}>
       {!isUser && (
-        <View style={[styles.avatar, { backgroundColor: theme.primary + "20" }]}>
-          <Feather name="cpu" size={14} color={theme.primary} />
+        <View
+          style={[
+            styles.avatar,
+            {
+              backgroundColor: isError
+                ? theme.destructive + "20"
+                : isOk
+                ? theme.success + "20"
+                : theme.primary + "20",
+            },
+          ]}
+        >
+          <Feather
+            name={isError ? "alert-circle" : isOk ? "check-circle" : "cpu"}
+            size={14}
+            color={isError ? theme.destructive : isOk ? theme.success : theme.primary}
+          />
         </View>
       )}
       <View
         style={[
           styles.bubble,
-          isUser
-            ? [styles.bubbleUser, { backgroundColor: theme.primary }]
-            : [styles.bubbleAssistant, { backgroundColor: theme.card, borderColor: theme.border }],
+          isUser ? styles.bubbleUser : styles.bubbleAssistant,
+          { backgroundColor: bubbleBg, borderColor: bubbleBorder },
         ]}
       >
-        <Text style={[styles.bubbleText, { color: isUser ? "#fff" : theme.foreground }]}>
-          {message.text}
-        </Text>
-        {message.action && message.action !== "none" && (
-          <View style={[styles.actionBadge, { backgroundColor: isUser ? "rgba(255,255,255,0.2)" : theme.primary + "18" }]}>
+        <Text style={[styles.bubbleText, { color: textColor }]}>{message.text}</Text>
+        {message.action && message.action !== "none" && !isOk && !isError && (
+          <View
+            style={[
+              styles.actionBadge,
+              { backgroundColor: isUser ? "rgba(255,255,255,0.2)" : theme.primary + "18" },
+            ]}
+          >
             <Feather name="zap" size={11} color={isUser ? "#fff" : theme.primary} />
             <Text style={[styles.actionBadgeText, { color: isUser ? "#fff" : theme.primary }]}>
               {actionLabel(message.action)}
@@ -418,20 +633,23 @@ function MessageBubble({
 function actionLabel(action: string): string {
   switch (action) {
     case "navigate": return "Navigazione";
-    case "approve_request": return "Apre richiesta";
-    case "deny_request": return "Apre richiesta";
-    case "send_message": return "Invia messaggio";
+    case "pos_approve": return "Approva richiesta";
+    case "pos_deny": return "Rifiuta richiesta";
+    case "pos_approve_all": return "Approva tutte";
+    case "pos_send_message": return "Messaggio stampante";
+    case "pos_reprint": return "Ristampa scontrino";
     case "query_summary": return "Riepilogo";
-    case "query_requests": return "Richieste";
+    case "query_requests": return "Stato richieste";
     default: return action;
   }
 }
 
 const SUGGESTIONS = [
   "Quante richieste ho in attesa?",
-  "Vai alle richieste",
-  "Mostrami il riepilogo di oggi",
+  "Approva tutte le richieste",
   "Invia messaggio alla cucina: pausa 10 minuti",
+  "Ristampa l'ultimo scontrino",
+  "Mostrami il riepilogo di oggi",
 ];
 
 const styles = StyleSheet.create({
