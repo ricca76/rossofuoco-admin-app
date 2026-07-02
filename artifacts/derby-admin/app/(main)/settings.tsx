@@ -33,8 +33,8 @@ export default function SettingsScreen() {
 
   const [ip, setIp] = useState(serverConfig?.ip ?? "");
   const [port, setPort] = useState(String(serverConfig?.port ?? "51521"));
-  const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : "local");
-  const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? "");
+  const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : (!serverConfig?.ip ? "remote" : "local"));
+  const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? "https://rossofuoco.eu");
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connStatus, setConnStatus] = useState<"ok" | "fail" | null>(null);

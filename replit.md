@@ -76,7 +76,7 @@ Tutte le route sono montate sotto `/api/` (confermato dal sorgente: `app.use("/a
 - Login tramite PIN admin (non username/password) — `POST /users/verify-admin-pin`
 - Nome admin salvato in AsyncStorage e ripristinato al riavvio (nessun token)
 - Polling automatico ogni 15 secondi + SSE per aggiornamenti in tempo reale
-- Porta default: 51521
+- Server default: `https://rossofuoco.eu` (modalità Accesso remoto)
 
 ## Product
 

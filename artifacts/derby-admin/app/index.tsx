@@ -35,8 +35,9 @@ import {
 } from "@/services/biometrics";
 import FaceAuthModal from "@/components/FaceAuthModal";
 
-const DEFAULT_IP = "192.168.0.177";
+const DEFAULT_IP = "";
 const DEFAULT_PORT = 51521;
+const DEFAULT_REMOTE_URL = "https://rossofuoco.eu";
 
 function normalizeServerUrl(url: string): string {
   if (!url || url.startsWith("http://") || url.startsWith("https://")) return url;
@@ -63,8 +64,8 @@ export default function LoginScreen() {
 
   const [ip, setIp] = useState(serverConfig?.ip ?? DEFAULT_IP);
   const [port, setPort] = useState(String(serverConfig?.port ?? DEFAULT_PORT));
-  const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : "local");
-  const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? "");
+  const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : (!serverConfig?.ip ? "remote" : "local"));
+  const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? DEFAULT_REMOTE_URL);
   const [pin, setPin] = useState("");
   const [showPin, setShowPin] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
