@@ -33,7 +33,7 @@ export async function authenticateWithBiometrics(
   try {
     const type = await getBiometricType();
     if (type === "none") {
-      return { success: true };
+      return { success: false, error: "Biometria non disponibile su questo dispositivo." };
     }
 
     const result = await LocalAuthentication.authenticateAsync({
@@ -56,7 +56,7 @@ export async function authenticateWithBiometrics(
       error: "Autenticazione biometrica fallita. Riprova.",
     };
   } catch {
-    return { success: true };
+    return { success: false, error: "Errore biometria." };
   }
 }
 

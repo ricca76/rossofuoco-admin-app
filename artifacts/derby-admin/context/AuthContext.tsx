@@ -9,8 +9,11 @@ import React, {
 import {
   AdminCredentials,
   ServerConfig,
+  clearAdminCredentials,
   configureApi,
   login,
+  setAdminToken,
+  setAdminUserId,
 } from "@/services/derbyApi";
 
 interface AuthState {
@@ -38,6 +41,7 @@ const STORAGE_KEYS = {
   ADMIN_NAME: "@derby_admin_name",
   USER_ID: "@derby_user_id",
   ADMIN_PIN: "@derby_admin_pin",
+  ADMIN_TOKEN: "@derby_admin_token",
 };
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -54,22 +58,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [configStr, adminName, userIdStr, savedPin] = await Promise.all([
+        const [configStr, adminName, userIdStr, savedPin, savedToken] = await Promise.all([
           AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG),
           AsyncStorage.getItem(STORAGE_KEYS.ADMIN_NAME),
           AsyncStorage.getItem(STORAGE_KEYS.USER_ID),
           AsyncStorage.getItem(STORAGE_KEYS.ADMIN_PIN),
+          AsyncStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN),
         ]);
         const serverConfig: ServerConfig | null = configStr
           ? JSON.parse(configStr)
           : null;
         if (serverConfig) configureApi(serverConfig);
+        if (savedToken) setAdminToken(savedToken);
+        const userId = userIdStr ? Number(userIdStr) : null;
+        if (userId !== null) setAdminUserId(userId);
         setState({
           isConnected: !!(adminName && serverConfig),
           isLoading: false,
           serverConfig,
           adminName,
-          userId: userIdStr ? Number(userIdStr) : null,
+          userId,
           error: null,
           hasSavedCredentials: !!(adminName && serverConfig && savedPin),
         });
@@ -92,11 +100,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState((s) => ({ ...s, isLoading: true, error: null }));
     try {
       const res = await login(credentials);
-      await Promise.all([
+      const saves: Promise<void>[] = [
         AsyncStorage.setItem(STORAGE_KEYS.ADMIN_NAME, res.adminName),
         AsyncStorage.setItem(STORAGE_KEYS.USER_ID, String(res.userId)),
         AsyncStorage.setItem(STORAGE_KEYS.ADMIN_PIN, credentials.pin),
-      ]);
+      ];
+      if (res.token) {
+        saves.push(AsyncStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, res.token));
+      }
+      await Promise.all(saves);
+      setAdminUserId(res.userId);
+      if (res.token) setAdminToken(res.token);
       setState((s) => ({
         ...s,
         isConnected: true,
@@ -126,10 +140,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error("Nessun PIN salvato. Accedi manualmente.");
       }
       const res = await login({ pin: savedPin });
-      await Promise.all([
+      const saves: Promise<void>[] = [
         AsyncStorage.setItem(STORAGE_KEYS.ADMIN_NAME, res.adminName),
         AsyncStorage.setItem(STORAGE_KEYS.USER_ID, String(res.userId)),
-      ]);
+      ];
+      if (res.token) {
+        saves.push(AsyncStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, res.token));
+      }
+      await Promise.all(saves);
+      setAdminUserId(res.userId);
+      if (res.token) setAdminToken(res.token);
       setState((s) => ({
         ...s,
         isConnected: true,
@@ -156,7 +176,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_NAME),
       AsyncStorage.removeItem(STORAGE_KEYS.USER_ID),
       AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_PIN),
+      AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN),
     ]);
+    clearAdminCredentials();
     setState((s) => ({
       ...s,
       isConnected: false,

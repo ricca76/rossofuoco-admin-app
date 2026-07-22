@@ -17,7 +17,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
-import FaceAuthModal from "@/components/FaceAuthModal";
+import {
+  BiometricType,
+  authenticateWithBiometrics,
+  getBiometricType,
+} from "@/services/biometrics";
 
 const TYPE_LABELS: Record<string, string> = {
   void_item: "Annullamento articolo",
@@ -52,15 +56,13 @@ export default function RequestDetailScreen() {
   const request = getRequest(id ?? "");
   const [approving, setApproving] = useState(false);
   const [denying, setDenying] = useState(false);
-  const [faceModalVisible, setFaceModalVisible] = useState(false);
+  const [biometricType, setBiometricType] = useState<BiometricType>("none");
 
-  const handleApprove = useCallback(() => {
-    if (!request) return;
-    setFaceModalVisible(true);
-  }, [request]);
+  useEffect(() => {
+    getBiometricType().then(setBiometricType).catch(() => {});
+  }, []);
 
-  const handleFaceSuccess = useCallback(async () => {
-    setFaceModalVisible(false);
+  const doApprove = useCallback(async () => {
     if (!request) return;
     setApproving(true);
     try {
@@ -74,6 +76,20 @@ export default function RequestDetailScreen() {
       setApproving(false);
     }
   }, [request, approve, adminName]);
+
+  const handleApprove = useCallback(async () => {
+    if (!request) return;
+    if (biometricType !== "none") {
+      const bio = await authenticateWithBiometrics("Autorizza richiesta con Face ID");
+      if (!bio.success) {
+        if (bio.error && bio.error !== "Autenticazione annullata.") {
+          Alert.alert("Errore", bio.error);
+        }
+        return;
+      }
+    }
+    await doApprove();
+  }, [request, biometricType, doApprove]);
 
   const handleDeny = useCallback(async () => {
     if (!request) return;
@@ -139,6 +155,16 @@ export default function RequestDetailScreen() {
     request.payload?.amount ??
     request.payload?.total ??
     request.payload?.price;
+
+  const approveBtnLabel =
+    biometricType === "faceId"
+      ? "Autorizza con Face ID"
+      : biometricType === "fingerprint"
+      ? "Autorizza con Touch ID"
+      : "Autorizza";
+
+  const approveBtnIcon =
+    biometricType !== "none" ? "smile" : "check-circle";
 
   return (
     <ScrollView
@@ -251,20 +277,23 @@ export default function RequestDetailScreen() {
 
       {/* ── Azioni ────────────────────────────────────────────── */}
       <View style={styles.actions}>
-        {/* Face recognition indicator */}
-        <View
-          style={[
-            styles.biometricBadge,
-            { backgroundColor: theme.card, borderColor: theme.border },
-          ]}
-        >
-          <Feather name="smile" size={14} color={theme.mutedForeground} />
-          <Text style={[styles.biometricBadgeText, { color: theme.mutedForeground }]}>
-            Richiede riconoscimento volto per autorizzare
-          </Text>
-        </View>
+        {biometricType !== "none" && (
+          <View
+            style={[
+              styles.biometricBadge,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <Feather name="smile" size={14} color={theme.mutedForeground} />
+            <Text style={[styles.biometricBadgeText, { color: theme.mutedForeground }]}>
+              {biometricType === "faceId"
+                ? "Richiede Face ID per autorizzare"
+                : "Richiede Touch ID per autorizzare"}
+            </Text>
+          </View>
+        )}
 
-        {/* Approve — full width, prominent */}
+        {/* Approve */}
         <TouchableOpacity
           style={[
             styles.approveBtn,
@@ -279,15 +308,13 @@ export default function RequestDetailScreen() {
             <ActivityIndicator size={22} color="#fff" />
           ) : (
             <>
-              <Feather name="smile" size={22} color="#fff" />
-              <Text style={styles.approveBtnText}>
-                Autorizza con riconoscimento volto
-              </Text>
+              <Feather name={approveBtnIcon} size={22} color="#fff" />
+              <Text style={styles.approveBtnText}>{approveBtnLabel}</Text>
             </>
           )}
         </TouchableOpacity>
 
-        {/* Deny — full width, secondary */}
+        {/* Deny */}
         <TouchableOpacity
           style={[
             styles.denyBtn,
@@ -313,26 +340,6 @@ export default function RequestDetailScreen() {
           )}
         </TouchableOpacity>
       </View>
-
-      <FaceAuthModal
-        visible={faceModalVisible}
-        purpose="authorize"
-        onSuccess={handleFaceSuccess}
-        onCancel={() => setFaceModalVisible(false)}
-        onFallback={() => {
-          setFaceModalVisible(false);
-          if (request) {
-            setApproving(true);
-            approve(request.id, adminName ?? undefined)
-              .then(() => router.back())
-              .catch((err: unknown) => {
-                const msg = err instanceof Error ? err.message : "Errore";
-                Alert.alert("Errore", msg);
-              })
-              .finally(() => setApproving(false));
-          }
-        }}
-      />
     </ScrollView>
   );
 }

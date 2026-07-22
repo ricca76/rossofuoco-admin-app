@@ -35,9 +35,12 @@ export interface AuthRequest {
 export interface LoginResponse {
   adminName: string;
   userId: number;
+  token?: string;
 }
 
 let _baseUrl = "";
+let _adminToken: string | null = null;
+let _adminUserId: number | null = null;
 
 export function configureApi(config: ServerConfig) {
   if (config.baseUrl?.trim()) {
@@ -49,6 +52,19 @@ export function configureApi(config: ServerConfig) {
 
 export function getBaseUrl() {
   return _baseUrl;
+}
+
+export function setAdminToken(token: string | null) {
+  _adminToken = token;
+}
+
+export function setAdminUserId(userId: number | null) {
+  _adminUserId = userId;
+}
+
+export function clearAdminCredentials() {
+  _adminToken = null;
+  _adminUserId = null;
 }
 
 function isJsonResponse(response: Response): boolean {
@@ -85,6 +101,9 @@ async function apiRequest<T>(
     "Content-Type": "application/json",
     Accept: "application/json",
   };
+  if (_adminToken) {
+    headers["Authorization"] = `Bearer ${_adminToken}`;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -160,7 +179,7 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
 export async function login(
   credentials: AdminCredentials
 ): Promise<LoginResponse> {
-  const res = await apiRequest<{ ok: boolean; userId: number; name: string }>(
+  const res = await apiRequest<{ ok: boolean; userId: number; name: string; token?: string }>(
     "/users/verify-admin-pin",
     "POST",
     { pin: credentials.pin }
@@ -168,9 +187,14 @@ export async function login(
   if (!res.ok) {
     throw new Error("PIN non riconosciuto o utente non ha permessi admin.");
   }
+  if (res.token) {
+    _adminToken = res.token;
+  }
+  _adminUserId = res.userId;
   return {
     adminName: res.name,
     userId: res.userId,
+    token: res.token,
   };
 }
 
@@ -184,10 +208,14 @@ export async function resolveRequest(
   approved: boolean,
   adminName?: string
 ): Promise<void> {
-  await apiRequest<{ ok: boolean }>(`/auth-requests/${id}/resolve`, "POST", {
+  const body: Record<string, unknown> = {
     approved,
     adminName: adminName ?? null,
-  });
+  };
+  if (_adminUserId !== null) {
+    body.adminId = _adminUserId;
+  }
+  await apiRequest<{ ok: boolean }>(`/auth-requests/${id}/resolve`, "POST", body);
 }
 
 // ── Receipts ──────────────────────────────────────────────────────────────────

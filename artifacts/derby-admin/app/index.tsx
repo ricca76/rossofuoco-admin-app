@@ -30,10 +30,9 @@ import {
 } from "@/services/derbyApi";
 import {
   BiometricType,
-  biometricLabel,
+  authenticateWithBiometrics,
   getBiometricType,
 } from "@/services/biometrics";
-import FaceAuthModal from "@/components/FaceAuthModal";
 
 const DEFAULT_IP = "";
 const DEFAULT_PORT = 51521;
@@ -76,8 +75,6 @@ export default function LoginScreen() {
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [biometricType, setBiometricType] = useState<BiometricType>("none");
   const [biometricLoading, setBiometricLoading] = useState(false);
-  const [faceModalVisible, setFaceModalVisible] = useState(false);
-  const [faceModalPurpose] = useState<"login">("login");
 
   const pinRef = useRef<TextInput>(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
@@ -186,14 +183,16 @@ export default function LoginScreen() {
     await signIn({ pin: pin.trim() });
   };
 
-  const handleFaceLogin = () => {
+  const handleFaceLogin = async () => {
     if (!hasSavedCredentials) return;
-    setFaceModalVisible(true);
-  };
-
-  const handleFaceLoginSuccess = async (_employeeId: number, _employeeName: string) => {
-    setFaceModalVisible(false);
-    await signInWithStoredPin();
+    setBiometricLoading(true);
+    const bio = await authenticateWithBiometrics("Accedi a Rosso Admin");
+    setBiometricLoading(false);
+    if (bio.success) {
+      await signInWithStoredPin();
+    } else if (bio.error && bio.error !== "Autenticazione annullata.") {
+      Alert.alert("Errore biometria", bio.error);
+    }
   };
 
   const topPadding = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
@@ -207,7 +206,7 @@ export default function LoginScreen() {
   const getUserFullName = (user: AdminUser) =>
     [user.firstName, user.lastName].filter(Boolean).join(" ") || "Utente";
 
-  const showFaceBtn = hasSavedCredentials;
+  const showFaceBtn = hasSavedCredentials && biometricType !== "none";
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
@@ -242,16 +241,20 @@ export default function LoginScreen() {
             <TouchableOpacity
               style={[
                 styles.biometricBtn,
-                { backgroundColor: theme.primary, opacity: isLoading ? 0.7 : 1 },
+                { backgroundColor: theme.primary, opacity: (isLoading || biometricLoading) ? 0.7 : 1 },
               ]}
               onPress={handleFaceLogin}
-              disabled={isLoading}
+              disabled={isLoading || biometricLoading}
               activeOpacity={0.82}
             >
-              <Feather name="smile" size={22} color="#fff" />
+              {biometricLoading ? (
+                <ActivityIndicator size={22} color="#fff" />
+              ) : (
+                <Feather name="smile" size={22} color="#fff" />
+              )}
               <View>
                 <Text style={styles.biometricBtnTitle}>
-                  Accedi con riconoscimento volto
+                  {biometricType === "faceId" ? "Accedi con Face ID" : "Accedi con Touch ID"}
                 </Text>
                 {savedAdminName && (
                   <Text style={styles.biometricBtnSub}>
@@ -539,13 +542,6 @@ export default function LoginScreen() {
         onSelect={handleServerFound}
       />
 
-      <FaceAuthModal
-        visible={faceModalVisible}
-        purpose={faceModalPurpose}
-        onSuccess={handleFaceLoginSuccess}
-        onCancel={() => setFaceModalVisible(false)}
-        onFallback={() => setFaceModalVisible(false)}
-      />
     </View>
   );
 }
