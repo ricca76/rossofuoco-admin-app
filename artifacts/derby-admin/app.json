@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.rossofuoco.admin",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Rosso Admin usa Face ID per autorizzare l'accesso come amministratore senza dover reinserire il PIN.",
         "UIBackgroundModes": [
