@@ -17,7 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import colors from "@/constants/colors";
 import { useTip } from "@/context/TipContext";
-import { getDailySummaryFull, FullDailySummaryResponse, DailySummaryOperator } from "@/services/derbyApi";
+import { getDailySummaryFull, FullDailySummaryResponse, DailySummaryOperator, DailySummaryCloser } from "@/services/derbyApi";
 
 function toLocalDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -305,10 +305,12 @@ export default function SummaryScreen() {
                   </>
                 )}
 
-                {/* Operator leaderboard */}
+                {/* Operator leaderboard — Servito da (camerieri) */}
                 {operators.length > 0 && !filterOp && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>CLASSIFICA OPERATORI</Text>
+                    <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+                      CAMERIERI — SERVITO DA
+                    </Text>
                     <View style={[styles.leaderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                       {[...operators]
                         .sort((a, b) => b.total - a.total)
@@ -356,6 +358,60 @@ export default function SummaryScreen() {
                             </View>
                           );
                         })}
+                    </View>
+                  </>
+                )}
+
+                {/* Manager incassanti — Incassato da */}
+                {!filterOp && data.closers.length > 0 && (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+                      MANAGER — INCASSATO DA
+                    </Text>
+                    <View style={[styles.leaderCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {data.closers.map((c: DailySummaryCloser, idx: number) => {
+                        const name = `${c.firstName} ${c.lastName}`.trim();
+                        const maxTotal = Math.max(...data.closers.map((x: DailySummaryCloser) => x.total));
+                        const barPct = maxTotal > 0 ? c.total / maxTotal : 0;
+                        return (
+                          <View
+                            key={name}
+                            style={[
+                              styles.leaderRow,
+                              idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+                            ]}
+                          >
+                            <View style={[styles.rankBadge, { backgroundColor: "#3b82f620" }]}>
+                              <Feather name="user-check" size={13} color="#3b82f6" />
+                            </View>
+                            <View style={styles.leaderInfo}>
+                              <View style={styles.leaderNameRow}>
+                                <Text style={[styles.leaderName, { color: theme.foreground }]}>{name}</Text>
+                                <Text style={[styles.leaderCount, { color: theme.mutedForeground }]}>
+                                  {c.receiptCount} scontrini
+                                </Text>
+                              </View>
+                              <View style={styles.leaderBarBg}>
+                                <View
+                                  style={[
+                                    styles.leaderBarFill,
+                                    { width: `${Math.round(barPct * 100)}%`, backgroundColor: "#3b82f6" },
+                                  ]}
+                                />
+                              </View>
+                              <View style={styles.leaderAmounts}>
+                                <Text style={[styles.leaderTotal, { color: "#3b82f6" }]}>
+                                  {formatEuro(c.total)}
+                                </Text>
+                                <Text style={[styles.leaderSub, { color: theme.mutedForeground }]}>
+                                  {formatEuro(c.cash)} c · {formatEuro(c.card)} k
+                                  {c.gc > 0 ? ` · ${formatEuro(c.gc)} gc` : ""}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        );
+                      })}
                     </View>
                   </>
                 )}

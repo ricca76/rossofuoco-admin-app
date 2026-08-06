@@ -27,6 +27,7 @@ import {
 import {
   getDailySummaryFull,
   sendPrinterMessage,
+  DailySummaryCloser,
 } from "@/services/derbyApi";
 
 function toLocalDateStr(d: Date): string {
@@ -67,6 +68,16 @@ interface SummaryTotals {
   gc: number;
 }
 
+interface CloserRow {
+  firstName: string;
+  lastName: string;
+  receiptCount: number;
+  total: number;
+  cash: number;
+  card: number;
+  gc: number;
+}
+
 export default function CassaScreen() {
   const insets = useSafeAreaInsets();
   const scheme = useColorScheme();
@@ -79,6 +90,8 @@ export default function CassaScreen() {
 
   const [selectedDate, setSelectedDate] = useState(getDateStr(0));
   const [summaryTotals, setSummaryTotals] = useState<SummaryTotals | null>(null);
+  const [summaryClosers, setSummaryClosers] = useState<CloserRow[]>([]);
+  const [summaryServers, setSummaryServers] = useState<Array<{ firstName: string; lastName: string; receiptCount: number; total: number }>>([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -115,6 +128,15 @@ export default function CassaScreen() {
         cash: totals.cash,
         gc: totals.gc,
       });
+      setSummaryClosers(data.closers);
+      setSummaryServers(
+        data.operators.map((op) => ({
+          firstName: op.firstName,
+          lastName: op.lastName,
+          receiptCount: op.receiptCount,
+          total: op.total,
+        }))
+      );
     } catch (e: unknown) {
       setSummaryError(e instanceof Error ? e.message : "Errore caricamento");
     } finally {
@@ -152,6 +174,8 @@ export default function CassaScreen() {
         config,
         managerName: adminName ?? "Manager",
         restaurantName: "Rosso Fuoco",
+        closers: summaryClosers.length > 0 ? summaryClosers : undefined,
+        servers: summaryServers.length > 0 ? summaryServers : undefined,
       });
       await sendPrinterMessage(report, undefined, adminName ?? "Manager");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -321,6 +345,40 @@ export default function CassaScreen() {
               </Text>
             </View>
           </View>
+        )}
+
+        {/* ── PER MANAGER (solo se il POS espone il campo) ── */}
+        {!summaryLoading && !summaryError && summaryClosers.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+              INCASSATO DA (MANAGER)
+            </Text>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {summaryClosers.map((c, idx) => {
+                const name = [c.firstName, c.lastName].filter(Boolean).join(" ");
+                return (
+                  <View
+                    key={name}
+                    style={[
+                      styles.cassaRow,
+                      idx > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+                    ]}
+                  >
+                    <View style={[styles.cassaIconBox, { backgroundColor: theme.primary + "18" }]}>
+                      <Feather name="user" size={15} color={theme.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.cassaLabel, { color: theme.foreground }]}>{name}</Text>
+                      <Text style={[{ fontSize: 12, fontFamily: "Inter_400Regular", color: theme.mutedForeground }]}>
+                        {c.receiptCount} scontrini · {fmt(c.cash)} cont. · {fmt(c.card)} carta
+                      </Text>
+                    </View>
+                    <Text style={[styles.cassaAmount, { color: theme.foreground }]}>{fmt(c.total)}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </>
         )}
 
         {/* ── MANCE ── */}

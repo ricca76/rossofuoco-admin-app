@@ -244,6 +244,23 @@ export interface DailySummaryResponse {
 
 // ── Full daily summary (for Riepilogo screen) ─────────────────────────────────
 
+export interface DailySummaryTicket {
+  ticketId: string;
+  shortId: string | null;
+  tokenNo: string | null;
+  tableNum: string | null;
+  total: number;
+  closingDate: string | null;
+  cashAmount: number;
+  cardAmount: number;
+  gcAmount: number;
+  voidedCount: number;
+  voidedAmount: number;
+  /** Nome del manager che ha chiuso/incassato il conto (se esposto dal POS) */
+  closerFirstName: string | null;
+  closerLastName: string | null;
+}
+
 export interface DailySummaryOperator {
   firstName: string;
   lastName: string;
@@ -254,19 +271,21 @@ export interface DailySummaryOperator {
   gc: number;
   stornoCount: number;
   stornoAmount: number;
-  tickets: Array<{
-    ticketId: string;
-    shortId: string | null;
-    tokenNo: string | null;
-    tableNum: string | null;
-    total: number;
-    closingDate: string | null;
-    cashAmount: number;
-    cardAmount: number;
-    gcAmount: number;
-    voidedCount: number;
-    voidedAmount: number;
-  }>;
+  tickets: DailySummaryTicket[];
+}
+
+/**
+ * Aggregato per manager incassante (chi ha chiuso il conto).
+ * Ricavato dai campi closerFirstName/closerLastName per singolo ticket.
+ */
+export interface DailySummaryCloser {
+  firstName: string;
+  lastName: string;
+  receiptCount: number;
+  total: number;
+  cash: number;
+  card: number;
+  gc: number;
 }
 
 export interface DailySummaryTotals {
@@ -282,6 +301,8 @@ export interface DailySummaryTotals {
 export interface FullDailySummaryResponse {
   date: string;
   operators: DailySummaryOperator[];
+  /** Manager che hanno incassato i conti, aggregati dai ticket. Vuoto se il POS non espone il campo. */
+  closers: DailySummaryCloser[];
   totals: DailySummaryTotals;
 }
 
@@ -302,20 +323,76 @@ export async function getDailySummaryFull(date: string): Promise<FullDailySummar
     gc: Number(op.gc ?? 0),
     stornoCount: Number(op.stornoCount ?? 0),
     stornoAmount: Number(op.stornoAmount ?? 0),
-    tickets: (Array.isArray(op.tickets) ? op.tickets : []).map((t: Record<string, unknown>) => ({
-      ticketId: String(t.ticketId ?? ""),
-      shortId: t.shortId != null && String(t.shortId) !== "" ? String(t.shortId) : null,
-      tokenNo: t.tokenNo != null && String(t.tokenNo) !== "" ? String(t.tokenNo) : null,
-      tableNum: t.tableNum != null && String(t.tableNum) !== "" ? String(t.tableNum) : null,
-      total: Number(t.total ?? 0),
-      closingDate: t.closingDate != null ? String(t.closingDate) : null,
-      cashAmount: Number(t.cashAmount ?? 0),
-      cardAmount: Number(t.cardAmount ?? 0),
-      gcAmount: Number(t.gcAmount ?? 0),
-      voidedCount: Number(t.voidedCount ?? 0),
-      voidedAmount: Number(t.voidedAmount ?? 0),
-    })),
+    tickets: (Array.isArray(op.tickets) ? op.tickets : []).map((t: Record<string, unknown>) => {
+      // Tentiamo vari nomi di campo con cui il POS potrebbe esporre il manager incassante
+      const rawCloserFirst =
+        t.closerFirstName ?? t.closedByFirstName ?? t.managerFirstName ?? null;
+      const rawCloserLast =
+        t.closerLastName ?? t.closedByLastName ?? t.managerLastName ?? null;
+      // Supporta anche campo singolo "closerName" / "closedBy" / "closedByName"
+      const rawCloserFull =
+        t.closerName ?? t.closedByName ?? t.closedBy ?? null;
+
+      let closerFirstName: string | null = null;
+      let closerLastName: string | null = null;
+
+      if (rawCloserFirst != null && String(rawCloserFirst).trim() !== "") {
+        closerFirstName = String(rawCloserFirst).trim();
+        closerLastName = rawCloserLast != null && String(rawCloserLast).trim() !== ""
+          ? String(rawCloserLast).trim()
+          : null;
+      } else if (rawCloserFull != null && String(rawCloserFull).trim() !== "") {
+        const parts = String(rawCloserFull).trim().split(" ");
+        closerFirstName = parts[0];
+        closerLastName = parts.length > 1 ? parts.slice(1).join(" ") : null;
+      }
+
+      return {
+        ticketId: String(t.ticketId ?? ""),
+        shortId: t.shortId != null && String(t.shortId) !== "" ? String(t.shortId) : null,
+        tokenNo: t.tokenNo != null && String(t.tokenNo) !== "" ? String(t.tokenNo) : null,
+        tableNum: t.tableNum != null && String(t.tableNum) !== "" ? String(t.tableNum) : null,
+        total: Number(t.total ?? 0),
+        closingDate: t.closingDate != null ? String(t.closingDate) : null,
+        cashAmount: Number(t.cashAmount ?? 0),
+        cardAmount: Number(t.cardAmount ?? 0),
+        gcAmount: Number(t.gcAmount ?? 0),
+        voidedCount: Number(t.voidedCount ?? 0),
+        voidedAmount: Number(t.voidedAmount ?? 0),
+        closerFirstName,
+        closerLastName,
+      };
+    }),
   }));
+
+  // Aggrega i dati per manager incassante (closers), raccogliendoli dai ticket
+  const closerMap = new Map<string, DailySummaryCloser>();
+  for (const op of operators) {
+    for (const t of op.tickets) {
+      if (!t.closerFirstName) continue; // campo non esposto dal POS
+      const key = [t.closerFirstName, t.closerLastName ?? ""].join(" ").trim();
+      if (!closerMap.has(key)) {
+        closerMap.set(key, {
+          firstName: t.closerFirstName,
+          lastName: t.closerLastName ?? "",
+          receiptCount: 0,
+          total: 0,
+          cash: 0,
+          card: 0,
+          gc: 0,
+        });
+      }
+      const c = closerMap.get(key)!;
+      c.receiptCount += 1;
+      c.total += t.total;
+      c.cash += t.cashAmount;
+      c.card += t.cardAmount;
+      c.gc += t.gcAmount;
+    }
+  }
+  const closers: DailySummaryCloser[] = Array.from(closerMap.values()).sort(
+    (a, b) => b.total - a.total
+  );
 
   const rt = res.totals ?? {};
   const totals: DailySummaryTotals = {
@@ -328,7 +405,7 @@ export async function getDailySummaryFull(date: string): Promise<FullDailySummar
     stornoAmount: Number(rt.stornoAmount ?? 0),
   };
 
-  return { date: res.date ?? date, operators, totals };
+  return { date: res.date ?? date, operators, closers, totals };
 }
 
 export async function getDailyReceipts(

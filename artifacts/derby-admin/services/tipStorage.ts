@@ -163,6 +163,15 @@ export function buildTipReceiptText(params: {
   ].join("\n");
 }
 
+export interface CloserSummary {
+  firstName: string;
+  lastName: string;
+  receiptCount: number;
+  total: number;
+  cash: number;
+  card: number;
+}
+
 /** Genera report fine giornata per la stampante */
 export function buildEndOfDayReport(params: {
   date: string;
@@ -174,6 +183,10 @@ export function buildEndOfDayReport(params: {
   config: TipConfig;
   managerName: string;
   restaurantName?: string;
+  /** Lista manager che hanno incassato conti (opzionale — se esposta dal POS) */
+  closers?: CloserSummary[];
+  /** Lista camerieri/operatori che hanno servito (opzionale) */
+  servers?: Array<{ firstName: string; lastName: string; receiptCount: number; total: number }>;
 }): string {
   const {
     date,
@@ -185,6 +198,8 @@ export function buildEndOfDayReport(params: {
     config,
     managerName,
     restaurantName,
+    closers,
+    servers,
   } = params;
 
   const fmt = (n: number) =>
@@ -192,6 +207,32 @@ export function buildEndOfDayReport(params: {
 
   const [y, m, d] = date.split("-");
   const dateLabel = `${d}.${m}.${y}`;
+
+  // Sezione camerieri (opzionale)
+  const serverLines: (string | null)[] =
+    servers && servers.length > 0
+      ? [
+          "",
+          "--- CAMERIERI / KELNERZY ---------",
+          ...servers.map(
+            (s) =>
+              `${[s.firstName, s.lastName].filter(Boolean).join(" ").padEnd(18)} ${String(s.receiptCount).padStart(3)} scontrini  ${fmt(s.total)}`
+          ),
+        ]
+      : [];
+
+  // Sezione manager incassanti (opzionale)
+  const closerLines: (string | null)[] =
+    closers && closers.length > 0
+      ? [
+          "",
+          "--- INCASSATO DA / MANAGER -------",
+          ...closers.map(
+            (c) =>
+              `${[c.firstName, c.lastName].filter(Boolean).join(" ").padEnd(18)} ${String(c.receiptCount).padStart(3)} scontrini  ${fmt(c.total)}`
+          ),
+        ]
+      : [];
 
   const lines = [
     "=================================",
@@ -207,6 +248,8 @@ export function buildEndOfDayReport(params: {
     `Contanti/Gotówka: ${fmt(totalCash)}`,
     totalGc > 0 ? `Gift Card:        ${fmt(totalGc)}` : null,
     `TOTALE:           ${fmt(totalCard + totalCash + totalGc)}`,
+    ...serverLines,
+    ...closerLines,
     "",
     "--- MANCE / NAPIWKI --------------",
     `Mance contanti:   ${fmt(tipData.cashTips)}`,
