@@ -27,7 +27,16 @@ export default function RequestsScreen() {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
   const { adminName, signOut } = useAuth();
-  const { requests, isLoading, isRefreshing, error, lastUpdated, fetchRequests, refresh } = useRequests();
+  const { requests: rawRequests, isLoading, isRefreshing, error, lastUpdated, fetchRequests, refresh } = useRequests();
+
+  // Payment/conto requests appear first, then by creation time (newest first)
+  const requests = React.useMemo(() => {
+    return [...rawRequests].sort((a, b) => {
+      if (a.type === "payment" && b.type !== "payment") return -1;
+      if (a.type !== "payment" && b.type === "payment") return 1;
+      return b.createdAt - a.createdAt;
+    });
+  }, [rawRequests]);
 
   useEffect(() => {
     fetchRequests();

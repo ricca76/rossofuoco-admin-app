@@ -59,6 +59,32 @@ export async function notifyNewAuthRequest(
   });
 }
 
+export async function notifyPaymentRequest(
+  operatorName: string,
+  tableNum: string | null,
+  amount: number | null,
+  requestId?: string
+): Promise<void> {
+  if (Platform.OS === "web") return;
+
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== "granted") return;
+
+  const tableStr = tableNum ? `Tavolo ${tableNum}` : "Conto";
+  const amountStr = amount != null ? ` — € ${amount.toFixed(2)}` : "";
+
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: `💳 Chiusura conto richiesta`,
+      body: `${tableStr}${amountStr} · ${operatorName}`,
+      sound: true,
+      badge: 1,
+      data: { type: "payment", operatorName, requestId: requestId ?? null },
+    },
+    trigger: null,
+  });
+}
+
 export async function clearNotificationBadge(): Promise<void> {
   if (Platform.OS === "web") return;
   await Notifications.setBadgeCountAsync(0);

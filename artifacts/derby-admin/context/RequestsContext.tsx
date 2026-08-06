@@ -13,7 +13,7 @@ import {
   resolveRequest,
 } from "@/services/derbyApi";
 import { saveAuthHistoryItem } from "@/services/authHistory";
-import { notifyNewAuthRequest } from "@/services/notifications";
+import { notifyNewAuthRequest, notifyPaymentRequest } from "@/services/notifications";
 
 interface RequestsState {
   requests: AuthRequest[];
@@ -60,7 +60,17 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
       for (const r of newOnes) {
         knownIds.current.add(r.id);
         try {
-          await notifyNewAuthRequest(r.type, r.operatorName, r.description, r.id);
+          if (r.type === "payment") {
+            const amount = (() => {
+              const v = r.payload?.amount ?? r.payload?.total ?? r.payload?.price;
+              if (v == null) return null;
+              const n = Number(v);
+              return isNaN(n) ? null : n;
+            })();
+            await notifyPaymentRequest(r.operatorName, r.tableNum, amount, r.id);
+          } else {
+            await notifyNewAuthRequest(r.type, r.operatorName, r.description, r.id);
+          }
         } catch {
           // ignora errori notifiche
         }

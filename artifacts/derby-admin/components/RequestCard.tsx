@@ -58,14 +58,18 @@ export function RequestCard({ request, onPress }: Props) {
 
   const config = TYPE_CONFIG[request.type] ?? TYPE_CONFIG["default"];
   const amount = getAmountFromPayload(request.payload);
+  const isPayment = request.type === "payment";
 
   return (
     <TouchableOpacity
       style={[
         styles.card,
         {
-          backgroundColor: theme.card,
-          borderColor: theme.border,
+          backgroundColor: isPayment
+            ? (isDark ? "#0D1F14" : "#F0FDF4")
+            : theme.card,
+          borderColor: isPayment ? "#22C55E55" : theme.border,
+          borderWidth: isPayment ? 1.5 : 1,
         },
       ]}
       onPress={onPress}
@@ -79,12 +83,19 @@ export function RequestCard({ request, onPress }: Props) {
 
       <View style={styles.content}>
         <View style={styles.row}>
-          <Text
-            style={[styles.typeLabel, { color: config.color }]}
-            numberOfLines={1}
-          >
-            {config.label}
-          </Text>
+          <View style={styles.labelRow}>
+            <Text
+              style={[styles.typeLabel, { color: config.color }]}
+              numberOfLines={1}
+            >
+              {config.label}
+            </Text>
+            {isPayment && (
+              <View style={styles.priorityBadge}>
+                <Text style={styles.priorityBadgeText}>CONTO</Text>
+              </View>
+            )}
+          </View>
           <Text style={[styles.time, { color: theme.mutedForeground }]}>
             {formatTime(request.createdAt)}
           </Text>
@@ -123,7 +134,7 @@ export function RequestCard({ request, onPress }: Props) {
             </View>
           )}
           {amount != null && (
-            <Text style={[styles.amount, { color: theme.primary }]}>
+            <Text style={[styles.amount, { color: isPayment ? "#22C55E" : theme.primary }]}>
               € {amount.toFixed(2)}
             </Text>
           )}
@@ -198,5 +209,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_700Bold",
     marginLeft: "auto",
+  },
+  labelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  priorityBadge: {
+    backgroundColor: "#22C55E",
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  priorityBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
   },
 });

@@ -151,10 +151,42 @@ export default function RequestDetailScreen() {
     ([, v]) => v != null && String(v).trim() !== ""
   );
 
+  const isPayment = request.type === "payment";
+
   const amount =
     request.payload?.amount ??
     request.payload?.total ??
     request.payload?.price;
+
+  // Payment method(s) from payload — handle various field names the POS may send
+  const rawMethods =
+    request.payload?.paymentMethods ??
+    request.payload?.payment_methods ??
+    request.payload?.methods ??
+    request.payload?.paymentMethod ??
+    request.payload?.payment_method ??
+    request.payload?.method ??
+    null;
+
+  const paymentMethods: string[] = (() => {
+    if (rawMethods == null) return [];
+    if (Array.isArray(rawMethods)) return rawMethods.map(String).filter(Boolean);
+    const s = String(rawMethods).trim();
+    return s ? s.split(/[,;|]/).map((m) => m.trim()).filter(Boolean) : [];
+  })();
+
+  const METHOD_LABELS: Record<string, string> = {
+    cash: "Contanti",
+    card: "Carta",
+    credit_card: "Carta di credito",
+    debit_card: "Carta di debito",
+    contactless: "Contactless",
+    bancomat: "Bancomat",
+    voucher: "Voucher",
+    ticket: "Ticket",
+    satispay: "Satispay",
+    app: "App",
+  };
 
   const approveBtnLabel =
     biometricType === "faceId"
@@ -173,36 +205,98 @@ export default function RequestDetailScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Type + description */}
-      <View
-        style={[
-          styles.typeChip,
-          { backgroundColor: theme.primary + "18" },
-        ]}
-      >
-        <Text style={[styles.typeText, { color: theme.primary }]}>
-          {typeLabel.toUpperCase()}
-        </Text>
+      <View style={styles.typeChipRow}>
+        <View
+          style={[
+            styles.typeChip,
+            {
+              backgroundColor: isPayment ? "#22C55E20" : theme.primary + "18",
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.typeText,
+              { color: isPayment ? "#22C55E" : theme.primary },
+            ]}
+          >
+            {typeLabel.toUpperCase()}
+          </Text>
+        </View>
+        {isPayment && (
+          <View style={styles.paymentPriorityBadge}>
+            <Feather name="credit-card" size={11} color="#fff" />
+            <Text style={styles.paymentPriorityText}>CHIUSURA CONTO</Text>
+          </View>
+        )}
       </View>
 
       <Text style={[styles.description, { color: theme.foreground }]}>
         {request.description}
       </Text>
 
-      {/* Amount */}
-      {amount != null && (
+      {/* Payment — prominent amount + methods block */}
+      {isPayment ? (
         <View
           style={[
-            styles.amountBox,
-            { backgroundColor: theme.card, borderColor: theme.border },
+            styles.paymentBox,
+            { backgroundColor: isDark ? "#0D1F14" : "#F0FDF4", borderColor: "#22C55E55" },
           ]}
         >
-          <Text style={[styles.amountLabel, { color: theme.mutedForeground }]}>
-            Importo
-          </Text>
-          <Text style={[styles.amountValue, { color: theme.primary }]}>
-            € {Number(amount).toFixed(2)}
-          </Text>
+          <View style={styles.paymentBoxTop}>
+            <View>
+              <Text style={[styles.paymentBoxLabel, { color: "#22C55E" }]}>
+                Totale da incassare
+              </Text>
+              <Text style={[styles.paymentBoxAmount, { color: isDark ? "#4ADE80" : "#16A34A" }]}>
+                {amount != null ? `€ ${Number(amount).toFixed(2)}` : "—"}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.paymentIconCircle,
+                { backgroundColor: "#22C55E25" },
+              ]}
+            >
+              <Feather name="dollar-sign" size={24} color="#22C55E" />
+            </View>
+          </View>
+
+          {paymentMethods.length > 0 && (
+            <View style={styles.paymentMethods}>
+              <Text style={[styles.paymentMethodsLabel, { color: isDark ? "#4ADE80" : "#16A34A" }]}>
+                Metodi di pagamento
+              </Text>
+              <View style={styles.paymentMethodChips}>
+                {paymentMethods.map((m) => (
+                  <View key={m} style={styles.methodChip}>
+                    <Feather name="credit-card" size={11} color="#22C55E" />
+                    <Text style={styles.methodChipText}>
+                      {METHOD_LABELS[m.toLowerCase()] ?? m}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
         </View>
+      ) : (
+        /* Generic amount for non-payment types */
+        amount != null && (
+          <View
+            style={[
+              styles.amountBox,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.amountLabel, { color: theme.mutedForeground }]}>
+              Importo
+            </Text>
+            <Text style={[styles.amountValue, { color: theme.primary }]}>
+              € {Number(amount).toFixed(2)}
+            </Text>
+          </View>
+        )
       )}
 
       {/* Info */}
@@ -501,4 +595,88 @@ const styles = StyleSheet.create({
   },
 
   btnDisabled: { opacity: 0.55 },
+
+  // Payment-specific styles
+  typeChipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  paymentPriorityBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#22C55E",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  paymentPriorityText: {
+    color: "#fff",
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
+  paymentBox: {
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 18,
+    gap: 14,
+  },
+  paymentBoxTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  paymentBoxLabel: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  paymentBoxAmount: {
+    fontSize: 36,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -1,
+  },
+  paymentIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentMethods: {
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#22C55E40",
+    paddingTop: 12,
+  },
+  paymentMethodsLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  paymentMethodChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  methodChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#22C55E18",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  methodChipText: {
+    color: "#22C55E",
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+  },
 });
