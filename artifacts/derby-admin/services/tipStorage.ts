@@ -181,6 +181,20 @@ export interface CloserSummary {
   card: number;
 }
 
+/**
+ * Restituisce tutte le date (YYYY-MM-DD) che hanno dati mance salvati.
+ */
+export async function getStoredTipDates(): Promise<string[]> {
+  try {
+    const allKeys = await AsyncStorage.getAllKeys();
+    return allKeys
+      .filter((k) => k.startsWith(KEYS.TIP_DATA_PREFIX))
+      .map((k) => k.replace(KEYS.TIP_DATA_PREFIX, ""))
+      .sort();
+  } catch {
+    return [];
+  }
+}
 /** Genera report fine giornata per la stampante */
 export function buildEndOfDayReport(params: {
   date: string;
@@ -288,4 +302,149 @@ export function buildEndOfDayReport(params: {
     .join("\n");
 
   return lines;
+}
+
+/** Genera export testuale mensile per la contabilità */
+export function buildMonthlyExportText(params: {
+  year: number;
+  month: number;
+  days: DayTipData[];
+  summary: MonthlyTipSummary;
+  config: TipConfig;
+  restaurantName?: string;
+}): string {
+  const { year, month, days, summary, config, restaurantName } = params;
+  const fmt = (n: number) =>
+    n.toLocaleString("pl-PL", { style: "currency", currency: "PLN" });
+
+  const monthNames = [
+    "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+    "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
+  ];
+  const monthLabel = `${monthNames[month - 1]} ${year}`;
+
+  const dayLines = days
+    .filter((d) => d.cashTips > 0 || d.cardTips > 0)
+    .map((d) => {
+      const [, , dd] = d.date.split("-");
+      const dist = calculateDistribution(d, config);
+      const contanti = d.cashTips > 0 ? ` C:${fmt(d.cashTips)}` : "";
+      const carta = d.cardTips > 0 ? ` POS:${fmt(d.cardTips)}` : "";
+      return `${dd}.${String(month).padStart(2,"0")}.${year}${contanti}${carta}  Netto:${fmt(dist.netTotal)}`;
+    });
+
+  return [
+    "=================================",
+    "  RIEPILOGO MENSILE MANCE",
+    "  MIESIĘCZNE PODSUMOWANIE NAPIWKÓW",
+    "=================================",
+    `Ristorante: ${restaurantName ?? "Rosso Fuoco"}`,
+    `Periodo: ${monthLabel}`,
+    `Giorni attivi: ${summary.activeDays}`,
+    "",
+    "--- DETTAGLIO GIORNALIERO --------",
+    ...(dayLines.length > 0 ? dayLines : ["(nessun dato)"]),
+    "",
+    "--- TOTALI MENSILI ---------------",
+    `Mance contanti:     ${fmt(summary.totalCash)}`,
+    `Mance POS/carta:    ${fmt(summary.totalCard)}`,
+    `Tassa ${config.electronicTipTaxPct}% (POS):   -${fmt(summary.totalTax)}`,
+    `Netto distribuibile: ${fmt(summary.netTotal)}`,
+    "",
+    "--- DISTRIBUZIONE ----------------",
+    `Sala (${config.salaPct}%):      ${fmt(summary.sala)}`,
+    `Cucina (${config.cucinaPct}%):   ${fmt(summary.cucina)}`,
+    `Bar (${config.barPct}%):      ${fmt(summary.bar)}`,
+    `Fondo (${config.fondoPct}%):    ${fmt(summary.fondo)}`,
+    "",
+    "--- CONFORMITÀ --------------------",
+    "Napiwki rozliczone zgodnie z",
+    "art. 12 ustawy z 26.07.1991 r.",
+    "o podatku dochodowym od osób fiz.",
+    "",
+    `Data wydruku: ${new Date().toLocaleDateString("pl-PL")}`,
+    "=================================",
+  ].join("\n");
+}
+
+/**
+ * Carica i dati mance per un intervallo di date (array di YYYY-MM-DD).
+ * Le date senza dati vengono restituite con valori a zero.
+ */
+export async function loadRangeTipData(dates: string[]): Promise<DayTipData[]> {
+  if (dates.length === 0) return [];
+  const keys = dates.map((d) => KEYS.TIP_DATA_PREFIX + d);
+  try {
+    const pairs = await AsyncStorage.multiGet(keys);
+    return pairs.map(([key, raw], i) => {
+      if (!raw) return { date: dates[i], cashTips: 0, cardTips: 0, notes: "", updatedAt: 0 };
+      try {
+        return JSON.parse(raw) as DayTipData;
+      } catch {
+        return { date: dates[i], cashTips: 0, cardTips: 0, notes: "", updatedAt: 0 };
+      }
+    });
+  } catch {
+    return dates.map((d) => ({ date: d, cashTips: 0, cardTips: 0, notes: "", updatedAt: 0 }));
+  }
+}
+
+export interface MonthlyTipSummary {
+  totalCash: number;
+  totalCard: number;
+  totalTax: number;
+  netTotal: number;
+  sala: number;
+  cucina: number;
+  bar: number;
+  fondo: number;
+  /** Numero giorni con almeno una mancia */
+  activeDays: number;
+}
+
+/**
+ * Aggrega i dati mance mensili applicando la configurazione corrente.
+ */
+export function aggregateMonth(
+  days: DayTipData[],
+  config: TipConfig
+): MonthlyTipSummary {
+  let totalCash = 0;
+  let totalCard = 0;
+  let totalTax = 0;
+  let sala = 0;
+  let cucina = 0;
+  let bar = 0;
+  let fondo = 0;
+  let activeDays = 0;
+
+  for (const day of days) {
+    if (day.cashTips === 0 && day.cardTips === 0) continue;
+    activeDays++;
+    const dist = calculateDistribution(day, config);
+    totalCash += day.cashTips;
+    totalCard += day.cardTips;
+    totalTax += dist.taxDeducted;
+    sala += dist.sala;
+    cucina += dist.cucina;
+    bar += dist.bar;
+    fondo += dist.fondo;
+  }
+
+  const netTotal = sala + cucina + bar + fondo;
+  return { totalCash, totalCard, totalTax, netTotal, sala, cucina, bar, fondo, activeDays };
+}
+
+/**
+ * Genera tutte le date YYYY-MM-DD di un mese (anno/mese 1-based).
+ */
+export function datesOfMonth(year: number, month: number): string[] {
+  const dates: string[] = [];
+  const daysInMonth = new Date(year, month, 0).getDate();
+  for (let d = 1; d <= daysInMonth; d++) {
+    dates.push(
+      `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+    );
+  }
+  return dates;
 }

@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
+import StoricoTab from "@/components/StoricoTab";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useTip } from "@/context/TipContext";
@@ -29,6 +30,8 @@ import {
   sendPrinterMessage,
   DailySummaryCloser,
 } from "@/services/derbyApi";
+
+type ActiveTab = "giornata" | "storico";
 
 function toLocalDateStr(d: Date): string {
   const y = d.getFullYear();
@@ -96,6 +99,8 @@ export default function CassaScreen() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [printing, setPrinting] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<ActiveTab>("giornata");
 
   const [cashTipInput, setCashTipInput] = useState("");
   const [cardTipInput, setCardTipInput] = useState("");
@@ -270,36 +275,71 @@ export default function CassaScreen() {
         <View style={styles.headerBlock}>
           <Text style={[styles.headerTitle, { color: theme.foreground }]}>Cassa Manager</Text>
 
-          {/* Date selector */}
-          <View style={styles.dateRow}>
-            <TouchableOpacity
-              style={[styles.dateNavBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => changeDate(-1)}
-            >
-              <Feather name="chevron-left" size={18} color={theme.foreground} />
-            </TouchableOpacity>
-            <View style={styles.dateLabelBox}>
-              <Text style={[styles.dateLabel, { color: theme.foreground }]}>
-                {formatDateLabel(selectedDate)}
-              </Text>
-              {selectedDate !== getDateStr(0) && (
-                <TouchableOpacity onPress={() => { Haptics.selectionAsync(); setSelectedDate(getDateStr(0)); }}>
-                  <Text style={[styles.todayLink, { color: theme.primary }]}>Torna ad oggi</Text>
+          {/* Tab bar */}
+          <View style={[styles.tabBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {(["giornata", "storico"] as ActiveTab[]).map((tab) => {
+              const isActive = activeTab === tab;
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  style={[
+                    styles.tabBtn,
+                    isActive && { backgroundColor: theme.primary },
+                  ]}
+                  onPress={() => { Haptics.selectionAsync(); setActiveTab(tab); }}
+                  activeOpacity={0.8}
+                >
+                  <Feather
+                    name={tab === "giornata" ? "calendar" : "bar-chart-2"}
+                    size={14}
+                    color={isActive ? "#fff" : theme.mutedForeground}
+                  />
+                  <Text style={[styles.tabBtnText, { color: isActive ? "#fff" : theme.mutedForeground }]}>
+                    {tab === "giornata" ? "Giornata" : "Storico"}
+                  </Text>
                 </TouchableOpacity>
-              )}
-            </View>
-            <TouchableOpacity
-              style={[
-                styles.dateNavBtn,
-                { backgroundColor: theme.card, borderColor: theme.border, opacity: selectedDate >= getDateStr(0) ? 0.3 : 1 },
-              ]}
-              disabled={selectedDate >= getDateStr(0)}
-              onPress={() => changeDate(1)}
-            >
-              <Feather name="chevron-right" size={18} color={theme.foreground} />
-            </TouchableOpacity>
+              );
+            })}
           </View>
+
+          {/* Date selector (only on giornata tab) */}
+          {activeTab === "giornata" && (
+            <View style={[styles.dateRow, { marginTop: 10 }]}>
+              <TouchableOpacity
+                style={[styles.dateNavBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => changeDate(-1)}
+              >
+                <Feather name="chevron-left" size={18} color={theme.foreground} />
+              </TouchableOpacity>
+              <View style={styles.dateLabelBox}>
+                <Text style={[styles.dateLabel, { color: theme.foreground }]}>
+                  {formatDateLabel(selectedDate)}
+                </Text>
+                {selectedDate !== getDateStr(0) && (
+                  <TouchableOpacity onPress={() => { Haptics.selectionAsync(); setSelectedDate(getDateStr(0)); }}>
+                    <Text style={[styles.todayLink, { color: theme.primary }]}>Torna ad oggi</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.dateNavBtn,
+                  { backgroundColor: theme.card, borderColor: theme.border, opacity: selectedDate >= getDateStr(0) ? 0.3 : 1 },
+                ]}
+                disabled={selectedDate >= getDateStr(0)}
+                onPress={() => changeDate(1)}
+              >
+                <Feather name="chevron-right" size={18} color={theme.foreground} />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
+
+        {/* ── STORICO TAB ── */}
+        {activeTab === "storico" && <StoricoTab theme={theme} />}
+
+        {/* ── GIORNATA CONTENT ── */}
+        {activeTab === "giornata" && <>
 
         {/* ── INCASSI GIORNATA ── */}
         <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>INCASSI GIORNATA</Text>
@@ -540,6 +580,7 @@ export default function CassaScreen() {
             </Text>
           </View>
         )}
+        </>}
       </ScrollView>
 
       <BottomTabBar />
@@ -613,6 +654,23 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: 16 },
   headerBlock: { marginBottom: 16 },
   headerTitle: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginBottom: 12 },
+  tabBar: {
+    flexDirection: "row",
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 3,
+    gap: 3,
+  },
+  tabBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  tabBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   dateRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   dateNavBtn: {
     width: 38, height: 38, borderRadius: 10, borderWidth: 1,
