@@ -42,6 +42,13 @@ export default function SettingsScreen() {
   const [testing, setTesting] = useState(false);
   const [connStatus, setConnStatus] = useState<"ok" | "fail" | null>(null);
 
+  // Modalità incasso
+  const handleToggleCassaMode = async () => {
+    const next = tipConfig.cassaMode === "condiviso" ? "singolo" : "condiviso";
+    Haptics.selectionAsync();
+    await updateTipConfig({ cassaMode: next });
+  };
+
   // Tip config local state
   const [salaPct, setSalaPct] = useState(String(tipConfig.salaPct));
   const [cucinaPct, setCucinaPct] = useState(String(tipConfig.cucinaPct));
@@ -310,6 +317,60 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* ── MODALITÀ INCASSO ── */}
+      <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+        MODALITÀ INCASSO
+      </Text>
+
+      <TouchableOpacity
+        style={[
+          styles.card,
+          styles.modeCard,
+          {
+            backgroundColor: theme.card,
+            borderColor: tipConfig.cassaMode === "condiviso" ? theme.primary + "60" : theme.border,
+          },
+        ]}
+        onPress={handleToggleCassaMode}
+        activeOpacity={0.85}
+      >
+        <View style={[
+          styles.modeBadge,
+          { backgroundColor: tipConfig.cassaMode === "condiviso" ? theme.primary : theme.muted },
+        ]}>
+          <Feather
+            name={tipConfig.cassaMode === "condiviso" ? "users" : "user"}
+            size={18}
+            color={tipConfig.cassaMode === "condiviso" ? "#fff" : theme.mutedForeground}
+          />
+        </View>
+        <View style={styles.modeCardInfo}>
+          <Text style={[styles.modeCardTitle, { color: theme.foreground }]}>
+            {tipConfig.cassaMode === "condiviso" ? "Incasso condiviso" : "Incasso singolo"}
+          </Text>
+          <Text style={[styles.modeCardSub, { color: theme.mutedForeground }]}>
+            {tipConfig.cassaMode === "condiviso"
+              ? "Solo il manager chiude i conti · Cassa abilitata"
+              : "Ogni cameriere chiude i propri conti · Cassa disabilitata"}
+          </Text>
+        </View>
+        <View style={[
+          styles.modeSwitch,
+          { backgroundColor: tipConfig.cassaMode === "condiviso" ? theme.primary : theme.muted },
+        ]}>
+          <View style={[
+            styles.modeSwitchThumb,
+            { transform: [{ translateX: tipConfig.cassaMode === "condiviso" ? 16 : 0 }] },
+          ]} />
+        </View>
+      </TouchableOpacity>
+
+      <Text style={[styles.portHint, { color: theme.mutedForeground, marginTop: 2 }]}>
+        {tipConfig.cassaMode === "condiviso"
+          ? "Modalità fine settimana o alta stagione — il tab Cassa è visibile nella barra."
+          : "Modalità standard — il tab Cassa è nascosto. Attivalo nei periodi ad alto afflusso."}
+      </Text>
+
       {/* ── DISTRIBUZIONE MANCE ── */}
       <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
         DISTRIBUZIONE MANCE
@@ -557,6 +618,13 @@ const styles = StyleSheet.create({
   },
   signOutText: { fontSize: 15, fontFamily: "Inter_500Medium" },
   pctSuffix: { fontSize: 14, fontFamily: "Inter_500Medium", marginLeft: 2, width: 16 },
+  modeCard: { flexDirection: "row", alignItems: "center", padding: 16, gap: 14, borderWidth: 1.5 },
+  modeBadge: { width: 42, height: 42, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  modeCardInfo: { flex: 1, gap: 3 },
+  modeCardTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  modeCardSub: { fontSize: 12, fontFamily: "Inter_400Regular", lineHeight: 16 },
+  modeSwitch: { width: 38, height: 22, borderRadius: 11, justifyContent: "center", paddingHorizontal: 3 },
+  modeSwitchThumb: { width: 16, height: 16, borderRadius: 8, backgroundColor: "#fff" },
   version: {
     textAlign: "center",
     fontSize: 12,

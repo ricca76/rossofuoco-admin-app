@@ -49,6 +49,7 @@ export function TipProvider({ children }: { children: React.ReactNode }) {
     barPct: 20,
     fondoPct: 10,
     electronicTipTaxPct: 30,
+    cassaMode: "singolo",
   });
   const [currentDate, setCurrentDate] = useState(todayStr());
   const [tipData, setTipData] = useState<DayTipData>({

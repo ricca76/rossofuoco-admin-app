@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+export type CassaMode = "condiviso" | "singolo";
+
 export interface TipConfig {
   /** Percentuale Sala (es. 40) */
   salaPct: number;
@@ -11,6 +13,12 @@ export interface TipConfig {
   fondoPct: number;
   /** Tassazione mance elettroniche (default 30%) */
   electronicTipTaxPct: number;
+  /**
+   * "condiviso" = Incasso condiviso: solo il manager incassa i tavoli (nuovo regolamento).
+   * "singolo"   = Incasso singolo: ogni cameriere chiude i propri tavoli (modalità tradizionale).
+   * Default: "singolo" — non abilita il nuovo sistema finché non viene attivato manualmente.
+   */
+  cassaMode: CassaMode;
 }
 
 export interface DayTipData {
@@ -55,6 +63,7 @@ const DEFAULT_CONFIG: TipConfig = {
   barPct: 20,
   fondoPct: 10,
   electronicTipTaxPct: 30,
+  cassaMode: "singolo",
 };
 
 export async function loadTipConfig(): Promise<TipConfig> {
