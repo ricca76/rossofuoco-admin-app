@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import colors from "@/constants/colors";
+import { useTip } from "@/context/TipContext";
 import { getDailySummaryFull, FullDailySummaryResponse, DailySummaryOperator } from "@/services/derbyApi";
 
 function toLocalDateStr(d: Date): string {
@@ -82,6 +84,8 @@ export default function SummaryScreen() {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
 
+  const { tipData, distribution, config, setDate: setTipDate } = useTip();
+
   const [selectedDate, setSelectedDate] = useState(getDateStr(0));
   const [data, setData] = useState<FullDailySummaryResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -90,6 +94,9 @@ export default function SummaryScreen() {
   const [filterOp, setFilterOp] = useState<string | null>(null);
 
   const topPadding = Platform.OS === "web" ? Math.max(insets.top, 67) : insets.top;
+
+  // Keep tip context date in sync
+  useEffect(() => { setTipDate(selectedDate); }, [selectedDate, setTipDate]);
 
   const load = useCallback(async (refreshing = false) => {
     if (refreshing) setIsRefreshing(true);
@@ -353,6 +360,64 @@ export default function SummaryScreen() {
                   </>
                 )}
 
+                {/* Mance giornata */}
+                {(tipData.cashTips > 0 || tipData.cardTips > 0) && (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>MANCE GIORNATA</Text>
+                    <View style={[styles.payCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <PayRow label="Contanti" amount={tipData.cashTips} total={tipData.cashTips + tipData.cardTips} color="#22c55e" theme={theme} />
+                      <PayRow label="Carta" amount={tipData.cardTips} total={tipData.cashTips + tipData.cardTips} color="#3b82f6" theme={theme} />
+                      <View style={[styles.payRow, { borderTopColor: theme.border, borderTopWidth: StyleSheet.hairlineWidth }]}>
+                        <View style={[styles.payDot, { backgroundColor: theme.primary }]} />
+                        <Text style={[styles.payLabel, { color: theme.foreground }]}>Netto distr.</Text>
+                        <View style={styles.payBarBg} />
+                        <Text style={[styles.payAmount, { color: theme.primary, fontFamily: "Inter_700Bold" }]}>{formatEuro(distribution.netTotal)}</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.distCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {[
+                        { label: `Sala ${config.salaPct}%`, amount: distribution.sala, color: "#f59e0b" },
+                        { label: `Cucina ${config.cucinaPct}%`, amount: distribution.cucina, color: "#ef4444" },
+                        { label: `Bar ${config.barPct}%`, amount: distribution.bar, color: "#8b5cf6" },
+                        { label: `Fondo ${config.fondoPct}%`, amount: distribution.fondo, color: "#6b7280" },
+                      ].map((d, i) => (
+                        <View
+                          key={d.label}
+                          style={[
+                            styles.distRow,
+                            i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+                          ]}
+                        >
+                          <View style={[styles.distDot, { backgroundColor: d.color }]} />
+                          <Text style={[styles.distRowLabel, { color: theme.foreground }]}>{d.label}</Text>
+                          <Text style={[styles.distRowAmount, { color: theme.foreground }]}>{formatEuro(d.amount)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.cassaLink, { backgroundColor: theme.card, borderColor: theme.border }]}
+                      onPress={() => router.push("/(main)/cassa")}
+                      activeOpacity={0.8}
+                    >
+                      <Feather name="dollar-sign" size={15} color={theme.primary} />
+                      <Text style={[styles.cassaLinkText, { color: theme.primary }]}>Apri Cassa Manager · stampa resoconto</Text>
+                      <Feather name="chevron-right" size={15} color={theme.mutedForeground} />
+                    </TouchableOpacity>
+                  </>
+                )}
+
+                {tipData.cashTips === 0 && tipData.cardTips === 0 && (
+                  <TouchableOpacity
+                    style={[styles.cassaLink, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => router.push("/(main)/cassa")}
+                    activeOpacity={0.8}
+                  >
+                    <Feather name="dollar-sign" size={15} color={theme.mutedForeground} />
+                    <Text style={[styles.cassaLinkText, { color: theme.mutedForeground }]}>Registra mance in Cassa Manager</Text>
+                    <Feather name="chevron-right" size={15} color={theme.mutedForeground} />
+                  </TouchableOpacity>
+                )}
+
                 {/* Distribuzione oraria */}
                 {hourlyData.length > 0 && (
                   <>
@@ -578,4 +643,14 @@ const styles = StyleSheet.create({
   hourBarFill: { height: "100%", borderRadius: 4 },
   hourCount: { width: 24, fontSize: 13, fontFamily: "Inter_700Bold", textAlign: "right" },
   hourTotal: { width: 74, fontSize: 12, fontFamily: "Inter_400Regular", textAlign: "right" },
+  distCard: { borderRadius: 14, borderWidth: 1, overflow: "hidden", marginBottom: 4 },
+  distRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 11, gap: 10 },
+  distDot: { width: 9, height: 9, borderRadius: 5 },
+  distRowLabel: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
+  distRowAmount: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  cassaLink: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    padding: 13, borderRadius: 12, borderWidth: 1, marginBottom: 4,
+  },
+  cassaLinkText: { flex: 1, fontSize: 14, fontFamily: "Inter_500Medium" },
 });

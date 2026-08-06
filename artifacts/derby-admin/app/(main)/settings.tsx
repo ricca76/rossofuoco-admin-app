@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
+import { useTip } from "@/context/TipContext";
 import { ServerConfig, testConnection } from "@/services/derbyApi";
 
 function normalizeServerUrl(url: string): string {
@@ -31,6 +32,8 @@ export default function SettingsScreen() {
   const theme = isDark ? colors.dark : colors.light;
   const { serverConfig, saveServerConfig, signOut, adminName } = useAuth();
 
+  const { config: tipConfig, updateConfig: updateTipConfig } = useTip();
+
   const [ip, setIp] = useState(serverConfig?.ip ?? "");
   const [port, setPort] = useState(String(serverConfig?.port ?? "51521"));
   const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : (!serverConfig?.ip ? "remote" : "local"));
@@ -38,6 +41,54 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [connStatus, setConnStatus] = useState<"ok" | "fail" | null>(null);
+
+  // Tip config local state
+  const [salaPct, setSalaPct] = useState(String(tipConfig.salaPct));
+  const [cucinaPct, setCucinaPct] = useState(String(tipConfig.cucinaPct));
+  const [barPct, setBarPct] = useState(String(tipConfig.barPct));
+  const [fondoPct, setFondoPct] = useState(String(tipConfig.fondoPct));
+  const [taxPct, setTaxPct] = useState(String(tipConfig.electronicTipTaxPct));
+  const [savingTips, setSavingTips] = useState(false);
+
+  // Sync when tipConfig loads from storage
+  useEffect(() => {
+    setSalaPct(String(tipConfig.salaPct));
+    setCucinaPct(String(tipConfig.cucinaPct));
+    setBarPct(String(tipConfig.barPct));
+    setFondoPct(String(tipConfig.fondoPct));
+    setTaxPct(String(tipConfig.electronicTipTaxPct));
+  }, [tipConfig.salaPct, tipConfig.cucinaPct, tipConfig.barPct, tipConfig.fondoPct, tipConfig.electronicTipTaxPct]);
+
+  const parsePct = (s: string) => Math.max(0, Math.min(100, Number(s.replace(",", ".")) || 0));
+
+  const handleSaveTipConfig = async () => {
+    const s = parsePct(salaPct);
+    const c = parsePct(cucinaPct);
+    const b = parsePct(barPct);
+    const f = parsePct(fondoPct);
+    const total = s + c + b + f;
+    if (Math.abs(total - 100) > 0.5) {
+      Alert.alert(
+        "Percentuali non valide",
+        `La somma delle percentuali è ${total.toFixed(0)}%. Deve essere esattamente 100%.`
+      );
+      return;
+    }
+    setSavingTips(true);
+    await updateTipConfig({
+      salaPct: s,
+      cucinaPct: c,
+      barPct: b,
+      fondoPct: f,
+      electronicTipTaxPct: parsePct(taxPct),
+    });
+    setSavingTips(false);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Alert.alert("Salvato", "Configurazione mance aggiornata.");
+  };
+
+  const tipTotal = parsePct(salaPct) + parsePct(cucinaPct) + parsePct(barPct) + parsePct(fondoPct);
+  const tipTotalOk = Math.abs(tipTotal - 100) < 0.5;
 
   const buildConfig = (): ServerConfig =>
     mode === "remote"
@@ -259,6 +310,97 @@ export default function SettingsScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* ── DISTRIBUZIONE MANCE ── */}
+      <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+        DISTRIBUZIONE MANCE
+      </Text>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <TipPctRow
+          label="Sala"
+          value={salaPct}
+          onChange={setSalaPct}
+          theme={theme}
+          first
+          borderColor={theme.border}
+        />
+        <TipPctRow
+          label="Cucina"
+          value={cucinaPct}
+          onChange={setCucinaPct}
+          theme={theme}
+          borderColor={theme.border}
+        />
+        <TipPctRow
+          label="Bar"
+          value={barPct}
+          onChange={setBarPct}
+          theme={theme}
+          borderColor={theme.border}
+        />
+        <TipPctRow
+          label="Fondo Ristorante"
+          value={fondoPct}
+          onChange={setFondoPct}
+          theme={theme}
+          borderColor={theme.border}
+        />
+      </View>
+      <Text
+        style={[
+          styles.portHint,
+          { color: tipTotalOk ? theme.success : theme.destructive, marginTop: 2 },
+        ]}
+      >
+        {tipTotalOk
+          ? `✓ Totale: 100% — distribuzione corretta`
+          : `⚠ Totale: ${tipTotal.toFixed(0)}% — la somma deve essere esattamente 100%`}
+      </Text>
+
+      <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
+        TASSAZIONE MANCE ELETTRONICHE
+      </Text>
+      <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={styles.inputRow}>
+          <Feather name="percent" size={15} color={theme.mutedForeground} style={styles.inputIcon} />
+          <Text style={[styles.inputLabel, { color: theme.mutedForeground }]}>Aliquota mance POS/carta</Text>
+          <TextInput
+            style={[styles.inputValue, { color: theme.foreground }]}
+            value={taxPct}
+            onChangeText={setTaxPct}
+            placeholder="30"
+            placeholderTextColor={theme.mutedForeground}
+            keyboardType="decimal-pad"
+            textAlign="right"
+          />
+          <Text style={[styles.pctSuffix, { color: theme.mutedForeground }]}>%</Text>
+        </View>
+      </View>
+      <Text style={[styles.portHint, { color: theme.mutedForeground }]}>
+        Le mance incassate tramite POS o fattura sono soggette a tassazione.{"\n"}
+        La percentuale viene detratta prima della distribuzione (art. 12 legge polacca sul reddito).
+      </Text>
+
+      <TouchableOpacity
+        style={[
+          styles.btn,
+          styles.saveBtn,
+          { backgroundColor: tipTotalOk ? theme.primary : theme.muted },
+          (savingTips || !tipTotalOk) && { opacity: 0.6 },
+        ]}
+        onPress={handleSaveTipConfig}
+        disabled={savingTips || !tipTotalOk}
+        activeOpacity={0.8}
+      >
+        {savingTips ? (
+          <ActivityIndicator size={16} color="#fff" />
+        ) : (
+          <>
+            <Feather name="save" size={16} color="#fff" />
+            <Text style={[styles.btnText, { color: "#fff" }]}>Salva configurazione mance</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
       <Text style={[styles.sectionLabel, { color: theme.mutedForeground }]}>
         SESSIONE
       </Text>
@@ -277,6 +419,44 @@ export default function SettingsScreen() {
         Rosso Admin v1.0 · Rosso Fuoco Console
       </Text>
     </ScrollView>
+  );
+}
+
+function TipPctRow({
+  label,
+  value,
+  onChange,
+  theme,
+  first = false,
+  borderColor,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  theme: typeof colors.dark;
+  first?: boolean;
+  borderColor: string;
+}) {
+  return (
+    <View
+      style={[
+        styles.inputRow,
+        !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: borderColor },
+        { borderBottomWidth: 0 },
+      ]}
+    >
+      <Text style={[styles.inputLabel, { color: theme.foreground }]}>{label}</Text>
+      <TextInput
+        style={[styles.inputValue, { color: theme.foreground, width: 56 }]}
+        value={value}
+        onChangeText={onChange}
+        placeholder="0"
+        placeholderTextColor={theme.mutedForeground}
+        keyboardType="decimal-pad"
+        textAlign="right"
+      />
+      <Text style={[styles.pctSuffix, { color: theme.mutedForeground }]}>%</Text>
+    </View>
   );
 }
 
@@ -376,6 +556,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   signOutText: { fontSize: 15, fontFamily: "Inter_500Medium" },
+  pctSuffix: { fontSize: 14, fontFamily: "Inter_500Medium", marginLeft: 2, width: 16 },
   version: {
     textAlign: "center",
     fontSize: 12,

@@ -3,6 +3,7 @@ import React from "react";
 import { useColorScheme } from "react-native";
 import colors from "@/constants/colors";
 import { RequestsProvider } from "@/context/RequestsContext";
+import { TipProvider } from "@/context/TipContext";
 
 export default function MainLayout() {
   const scheme = useColorScheme();
@@ -11,46 +12,49 @@ export default function MainLayout() {
 
   return (
     <RequestsProvider>
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: theme.background },
-          headerTintColor: theme.foreground,
-          headerTitleStyle: {
-            fontFamily: "Inter_600SemiBold",
-            fontSize: 17,
-          },
-          headerBackTitle: "Indietro",
-          contentStyle: { backgroundColor: theme.background },
-        }}
-      >
-        <Stack.Screen name="requests" options={{ headerShown: false }} />
-        <Stack.Screen name="history" options={{ headerShown: false }} />
-        <Stack.Screen name="receipts" options={{ headerShown: false }} />
-        <Stack.Screen name="messages" options={{ headerShown: false }} />
-        <Stack.Screen name="summary" options={{ headerShown: false }} />
-        <Stack.Screen name="assistant" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="request/[id]"
-          options={{
-            title: "Dettaglio Richiesta",
-            presentation: "card",
+      <TipProvider>
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: theme.background },
+            headerTintColor: theme.foreground,
+            headerTitleStyle: {
+              fontFamily: "Inter_600SemiBold",
+              fontSize: 17,
+            },
+            headerBackTitle: "Indietro",
+            contentStyle: { backgroundColor: theme.background },
           }}
-        />
-        <Stack.Screen
-          name="receipt/[id]"
-          options={{
-            headerShown: false,
-            presentation: "card",
-          }}
-        />
-        <Stack.Screen
-          name="settings"
-          options={{
-            title: "Impostazioni",
-            presentation: "modal",
-          }}
-        />
-      </Stack>
+        >
+          <Stack.Screen name="requests" options={{ headerShown: false }} />
+          <Stack.Screen name="history" options={{ headerShown: false }} />
+          <Stack.Screen name="receipts" options={{ headerShown: false }} />
+          <Stack.Screen name="messages" options={{ headerShown: false }} />
+          <Stack.Screen name="summary" options={{ headerShown: false }} />
+          <Stack.Screen name="cassa" options={{ headerShown: false }} />
+          <Stack.Screen name="assistant" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="request/[id]"
+            options={{
+              title: "Dettaglio Richiesta",
+              presentation: "card",
+            }}
+          />
+          <Stack.Screen
+            name="receipt/[id]"
+            options={{
+              headerShown: false,
+              presentation: "card",
+            }}
+          />
+          <Stack.Screen
+            name="settings"
+            options={{
+              title: "Impostazioni",
+              presentation: "modal",
+            }}
+          />
+        </Stack>
+      </TipProvider>
     </RequestsProvider>
   );
 }

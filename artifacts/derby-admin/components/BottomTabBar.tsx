@@ -29,6 +29,11 @@ const TABS = [
     label: "Scontrini",
   },
   {
+    href: "/(main)/cassa" as const,
+    icon: "dollar-sign" as const,
+    label: "Cassa",
+  },
+  {
     href: "/(main)/summary" as const,
     icon: "bar-chart-2" as const,
     label: "Riepilogo",
@@ -37,11 +42,6 @@ const TABS = [
     href: "/(main)/messages" as const,
     icon: "printer" as const,
     label: "Messaggi",
-  },
-  {
-    href: "/(main)/assistant" as const,
-    icon: "mic" as const,
-    label: "Assistente",
   },
 ] as const;
 
