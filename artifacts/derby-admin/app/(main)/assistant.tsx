@@ -1,16 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from "expo-speech-recognition";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
-  NativeModules,
   ScrollView,
   StyleSheet,
   Text,
@@ -33,9 +28,24 @@ import {
   type PrinterGroup,
 } from "@/services/derbyApi";
 
-// Detect native speech module availability via NativeModules (safe in both Expo Go and native build).
-// The JS import above always succeeds; the native module may not exist in Expo Go.
-const SPEECH_AVAILABLE = !!NativeModules.ExpoSpeechRecognitionModule;
+// ── Safe speech-recognition loading ──────────────────────────────────────────
+// expo-speech-recognition è un modulo nativo: non disponibile in Expo Go.
+// L'import statico causerebbe crash immediato; usiamo require() protetto.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let ExpoSpeechRecognitionModule: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let useSpeechRecognitionEvent: (event: string, handler: (e: any) => void) => void = () => {};
+
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = require("expo-speech-recognition");
+  ExpoSpeechRecognitionModule = mod.ExpoSpeechRecognitionModule ?? null;
+  useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent ?? (() => {});
+} catch {
+  // Expo Go o build senza modulo nativo — speech disabilitato
+}
+
+const SPEECH_AVAILABLE = !!ExpoSpeechRecognitionModule;
 
 const API_BASE = REPLIT_API_BASE;
 
@@ -73,7 +83,7 @@ function MicController({
   const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(null);
 
   useEffect(() => {
-    ExpoSpeechRecognitionModule.requestPermissionsAsync().then((r) =>
+    ExpoSpeechRecognitionModule.requestPermissionsAsync().then((r: { granted: boolean }) =>
       setHasMicPermission(r.granted)
     );
   }, []);
