@@ -66,7 +66,9 @@ export default function LoginScreen() {
   const [mode, setMode] = useState<"local" | "remote">(serverConfig?.baseUrl ? "remote" : (!serverConfig?.ip ? "remote" : "local"));
   const [remoteUrl, setRemoteUrl] = useState(serverConfig?.baseUrl ?? DEFAULT_REMOTE_URL);
   const [pin, setPin] = useState("");
+  const [authPin, setAuthPin] = useState("");
   const [showPin, setShowPin] = useState(false);
+  const [showAuthPin, setShowAuthPin] = useState(false);
   const [testingConn, setTestingConn] = useState(false);
   const [connOk, setConnOk] = useState<boolean | null>(null);
   const [scannerVisible, setScannerVisible] = useState(false);
@@ -77,6 +79,7 @@ export default function LoginScreen() {
   const [biometricLoading, setBiometricLoading] = useState(false);
 
   const pinRef = useRef<TextInput>(null);
+  const authPinRef = useRef<TextInput>(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -159,6 +162,7 @@ export default function LoginScreen() {
     Haptics.selectionAsync();
     setSelectedUser(user);
     setPin("");
+    setAuthPin("");
     clearError();
     setTimeout(() => pinRef.current?.focus(), 150);
   };
@@ -180,7 +184,11 @@ export default function LoginScreen() {
       ? { ip: "", port: DEFAULT_PORT, baseUrl: normalizeServerUrl(remoteUrl.trim()) }
       : { ip: ip.trim(), port: Number(port) || DEFAULT_PORT };
     await saveServerConfig(config);
-    await signIn({ pin: pin.trim() });
+    await signIn({
+      pin: pin.trim(),
+      // authPin: se vuoto, il contesto usa il PIN di accesso come fallback
+      authPin: authPin.trim() || undefined,
+    });
   };
 
   const handleFaceLogin = async () => {
@@ -472,7 +480,7 @@ export default function LoginScreen() {
             </>
           )}
 
-          {/* PIN */}
+          {/* ── PIN di accesso + PIN di autorizzazione ── */}
           {(connOk === true || connOk === null) && (
             <>
               <Text style={[styles.sectionLabel, { color: theme.mutedForeground, marginTop: 20 }]}>
@@ -489,12 +497,13 @@ export default function LoginScreen() {
                   { transform: [{ translateX: shakeAnim }] },
                 ]}
               >
-                <View style={styles.inputRow}>
+                {/* PIN di accesso */}
+                <View style={[styles.inputRow, { borderBottomColor: theme.border }]}>
                   <Feather name="hash" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
                   <TextInput
                     ref={pinRef}
                     style={[styles.input, { color: theme.foreground }]}
-                    placeholder="PIN numerico admin"
+                    placeholder="PIN di accesso"
                     placeholderTextColor={theme.mutedForeground}
                     value={pin}
                     onChangeText={(t) => { setPin(t); clearError(); }}
@@ -502,12 +511,39 @@ export default function LoginScreen() {
                     keyboardType="number-pad"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    returnKeyType="next"
+                    onSubmitEditing={() => authPinRef.current?.focus()}
                   />
                   <TouchableOpacity onPress={() => setShowPin((v) => !v)} style={styles.eyeBtn}>
                     <Feather name={showPin ? "eye-off" : "eye"} size={16} color={theme.mutedForeground} />
                   </TouchableOpacity>
                 </View>
+                {/* PIN di autorizzazione */}
+                <View style={styles.inputRow}>
+                  <Feather name="key" size={16} color={theme.mutedForeground} style={styles.inputIcon} />
+                  <TextInput
+                    ref={authPinRef}
+                    style={[styles.input, { color: theme.foreground }]}
+                    placeholder="PIN di autorizzazione (opzionale)"
+                    placeholderTextColor={theme.mutedForeground}
+                    value={authPin}
+                    onChangeText={(t) => { setAuthPin(t); clearError(); }}
+                    secureTextEntry={!showAuthPin}
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogin}
+                  />
+                  <TouchableOpacity onPress={() => setShowAuthPin((v) => !v)} style={styles.eyeBtn}>
+                    <Feather name={showAuthPin ? "eye-off" : "eye"} size={16} color={theme.mutedForeground} />
+                  </TouchableOpacity>
+                </View>
               </Animated.View>
+
+              <Text style={[styles.hint, { color: theme.mutedForeground, marginTop: -2, marginLeft: 4 }]}>
+                Se hai un PIN di autorizzazione diverso da quello di accesso, inseriscilo. Altrimenti lascia vuoto.
+              </Text>
             </>
           )}
 

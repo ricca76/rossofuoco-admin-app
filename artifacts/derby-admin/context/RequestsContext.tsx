@@ -26,8 +26,10 @@ interface RequestsState {
 interface RequestsContextValue extends RequestsState {
   fetchRequests: () => Promise<void>;
   refresh: () => Promise<void>;
-  approve: (id: string, adminName?: string) => Promise<void>;
-  deny: (id: string, adminName?: string) => Promise<void>;
+  /** Approva una richiesta. Passa authPin se il POS lo richiede. */
+  approve: (id: string, adminName?: string, authPin?: string) => Promise<void>;
+  /** Nega una richiesta. Passa authPin se il POS lo richiede. */
+  deny: (id: string, adminName?: string, authPin?: string) => Promise<void>;
   getRequest: (id: string) => AuthRequest | undefined;
 }
 
@@ -113,9 +115,9 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [detectAndNotify]);
 
-  const approve = useCallback(async (id: string, adminName?: string) => {
+  const approve = useCallback(async (id: string, adminName?: string, authPin?: string) => {
     const req = state.requests.find((r) => r.id === id);
-    await resolveRequest(id, true, adminName);
+    await resolveRequest(id, true, adminName, authPin);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     knownIds.current.delete(id);
     if (req) {
@@ -127,9 +129,9 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [state.requests]);
 
-  const deny = useCallback(async (id: string, adminName?: string) => {
+  const deny = useCallback(async (id: string, adminName?: string, authPin?: string) => {
     const req = state.requests.find((r) => r.id === id);
-    await resolveRequest(id, false, adminName);
+    await resolveRequest(id, false, adminName, authPin);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     knownIds.current.delete(id);
     if (req) {

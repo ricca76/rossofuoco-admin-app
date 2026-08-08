@@ -6,7 +6,10 @@ export interface ServerConfig {
 }
 
 export interface AdminCredentials {
+  /** PIN di accesso (login) */
   pin: string;
+  /** PIN di autorizzazione (opzionale; se non passato, il POS usa il pin di accesso come fallback) */
+  authPin?: string;
 }
 
 export interface AdminUser {
@@ -206,7 +209,9 @@ export async function getPendingRequests(): Promise<AuthRequest[]> {
 export async function resolveRequest(
   id: string,
   approved: boolean,
-  adminName?: string
+  adminName?: string,
+  /** PIN di autorizzazione del manager — richiesto dalla versione aggiornata del POS */
+  authPin?: string
 ): Promise<void> {
   const body: Record<string, unknown> = {
     approved,
@@ -214,6 +219,11 @@ export async function resolveRequest(
   };
   if (_adminUserId !== null) {
     body.adminId = _adminUserId;
+  }
+  if (authPin) {
+    body.authPin = authPin;
+    // campo alternativo usato da alcune versioni del POS
+    body.adminPin = authPin;
   }
   await apiRequest<{ ok: boolean }>(`/auth-requests/${id}/resolve`, "POST", body);
 }

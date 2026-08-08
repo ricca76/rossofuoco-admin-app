@@ -24,6 +24,8 @@ interface AuthState {
   userId: number | null;
   error: string | null;
   hasSavedCredentials: boolean;
+  /** PIN di autorizzazione (separato dal PIN di accesso) */
+  authPin: string | null;
 }
 
 interface AuthContextValue extends AuthState {
@@ -32,6 +34,8 @@ interface AuthContextValue extends AuthState {
   signInWithStoredPin: () => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
+  /** Aggiorna solo il PIN di autorizzazione senza ri-effettuare il login */
+  saveAuthPin: (pin: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -40,7 +44,10 @@ const STORAGE_KEYS = {
   SERVER_CONFIG: "@derby_server_config",
   ADMIN_NAME: "@derby_admin_name",
   USER_ID: "@derby_user_id",
+  /** PIN di accesso (login) */
   ADMIN_PIN: "@derby_admin_pin",
+  /** PIN di autorizzazione (approvazione richieste) */
+  ADMIN_AUTH_PIN: "@derby_admin_auth_pin",
   ADMIN_TOKEN: "@derby_admin_token",
 };
 
@@ -53,18 +60,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userId: null,
     error: null,
     hasSavedCredentials: false,
+    authPin: null,
   });
 
   useEffect(() => {
     (async () => {
       try {
-        const [configStr, adminName, userIdStr, savedPin, savedToken] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG),
-          AsyncStorage.getItem(STORAGE_KEYS.ADMIN_NAME),
-          AsyncStorage.getItem(STORAGE_KEYS.USER_ID),
-          AsyncStorage.getItem(STORAGE_KEYS.ADMIN_PIN),
-          AsyncStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN),
-        ]);
+        const [configStr, adminName, userIdStr, savedPin, savedAuthPin, savedToken] =
+          await Promise.all([
+            AsyncStorage.getItem(STORAGE_KEYS.SERVER_CONFIG),
+            AsyncStorage.getItem(STORAGE_KEYS.ADMIN_NAME),
+            AsyncStorage.getItem(STORAGE_KEYS.USER_ID),
+            AsyncStorage.getItem(STORAGE_KEYS.ADMIN_PIN),
+            AsyncStorage.getItem(STORAGE_KEYS.ADMIN_AUTH_PIN),
+            AsyncStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN),
+          ]);
         const serverConfig: ServerConfig | null = configStr
           ? JSON.parse(configStr)
           : null;
@@ -80,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           userId,
           error: null,
           hasSavedCredentials: !!(adminName && serverConfig && savedPin),
+          authPin: savedAuthPin,
         });
       } catch {
         setState((s) => ({ ...s, isLoading: false }));
@@ -105,6 +116,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         AsyncStorage.setItem(STORAGE_KEYS.USER_ID, String(res.userId)),
         AsyncStorage.setItem(STORAGE_KEYS.ADMIN_PIN, credentials.pin),
       ];
+      // Salva il PIN di autorizzazione se fornito; altrimenti usa il PIN di accesso come fallback
+      const authPinToSave = credentials.authPin ?? credentials.pin;
+      saves.push(AsyncStorage.setItem(STORAGE_KEYS.ADMIN_AUTH_PIN, authPinToSave));
       if (res.token) {
         saves.push(AsyncStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, res.token));
       }
@@ -119,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userId: res.userId,
         error: null,
         hasSavedCredentials: true,
+        authPin: authPinToSave,
       }));
     } catch (err: unknown) {
       const msg =
@@ -135,11 +150,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithStoredPin = useCallback(async () => {
     setState((s) => ({ ...s, isLoading: true, error: null }));
     try {
-      const savedPin = await AsyncStorage.getItem(STORAGE_KEYS.ADMIN_PIN);
+      const [savedPin, savedAuthPin] = await Promise.all([
+        AsyncStorage.getItem(STORAGE_KEYS.ADMIN_PIN),
+        AsyncStorage.getItem(STORAGE_KEYS.ADMIN_AUTH_PIN),
+      ]);
       if (!savedPin) {
         throw new Error("Nessun PIN salvato. Accedi manualmente.");
       }
-      const res = await login({ pin: savedPin });
+      const res = await login({ pin: savedPin, authPin: savedAuthPin ?? undefined });
       const saves: Promise<void>[] = [
         AsyncStorage.setItem(STORAGE_KEYS.ADMIN_NAME, res.adminName),
         AsyncStorage.setItem(STORAGE_KEYS.USER_ID, String(res.userId)),
@@ -158,6 +176,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         userId: res.userId,
         error: null,
         hasSavedCredentials: true,
+        authPin: savedAuthPin,
       }));
     } catch (err: unknown) {
       const msg =
@@ -176,6 +195,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_NAME),
       AsyncStorage.removeItem(STORAGE_KEYS.USER_ID),
       AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_PIN),
+      AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_AUTH_PIN),
       AsyncStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN),
     ]);
     clearAdminCredentials();
@@ -186,11 +206,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       userId: null,
       error: null,
       hasSavedCredentials: false,
+      authPin: null,
     }));
   }, []);
 
   const clearError = useCallback(() => {
     setState((s) => ({ ...s, error: null }));
+  }, []);
+
+  const saveAuthPin = useCallback(async (pin: string) => {
+    await AsyncStorage.setItem(STORAGE_KEYS.ADMIN_AUTH_PIN, pin);
+    setState((s) => ({ ...s, authPin: pin }));
   }, []);
 
   return (
@@ -202,6 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signInWithStoredPin,
         signOut,
         clearError,
+        saveAuthPin,
       }}
     >
       {children}

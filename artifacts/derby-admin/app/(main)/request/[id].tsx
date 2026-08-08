@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import colors from "@/constants/colors";
 import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
+import { PinAuthModal } from "@/components/PinAuthModal";
 import {
   BiometricType,
   authenticateWithBiometrics,
@@ -51,45 +52,87 @@ export default function RequestDetailScreen() {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
   const { getRequest, approve, deny } = useRequests();
-  const { adminName } = useAuth();
+  const { adminName, authPin: storedAuthPin } = useAuth();
 
   const request = getRequest(id ?? "");
   const [approving, setApproving] = useState(false);
   const [denying, setDenying] = useState(false);
   const [biometricType, setBiometricType] = useState<BiometricType>("none");
 
+  // PIN modale state
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [pinModalMode, setPinModalMode] = useState<"approve" | "deny">("approve");
+
   useEffect(() => {
     getBiometricType().then(setBiometricType).catch(() => {});
   }, []);
 
-  const doApprove = useCallback(async () => {
+  /**
+   * Esegue l'approvazione finale con authPin noto.
+   * authPin può venire dalla biometria (usa il PIN salvato) o dalla modale.
+   */
+  const doApprove = useCallback(async (authPin?: string) => {
     if (!request) return;
     setApproving(true);
     try {
-      await approve(request.id, adminName ?? undefined);
+      await approve(request.id, adminName ?? undefined, authPin);
       router.back();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Errore";
-      Alert.alert("Errore", msg);
+      Alert.alert("Errore autorizzazione", msg);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setApproving(false);
     }
   }, [request, approve, adminName]);
 
+  const doDeny = useCallback(async (authPin?: string) => {
+    if (!request) return;
+    setDenying(true);
+    try {
+      await deny(request.id, adminName ?? undefined, authPin);
+      router.back();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Errore";
+      Alert.alert("Errore", msg);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setDenying(false);
+    }
+  }, [request, deny, adminName]);
+
+  /**
+   * Flusso approvazione:
+   * 1. Se biometria disponibile → autenticazione biometrica → usa PIN di autorizzazione salvato
+   * 2. Se biometria non disponibile → mostra modale PIN autorizzazione
+   */
   const handleApprove = useCallback(async () => {
     if (!request) return;
+
     if (biometricType !== "none") {
-      const bio = await authenticateWithBiometrics("Autorizza richiesta con Face ID");
-      if (!bio.success) {
-        if (bio.error && bio.error !== "Autenticazione annullata.") {
-          Alert.alert("Errore", bio.error);
-        }
+      const bio = await authenticateWithBiometrics("Autorizza richiesta");
+      if (bio.success) {
+        // Biometria ok: usa il PIN di autorizzazione salvato
+        await doApprove(storedAuthPin ?? undefined);
         return;
       }
+      if (bio.error && bio.error !== "Autenticazione annullata.") {
+        // Biometria fallita per errore — cade sul PIN manuale
+        Alert.alert(
+          "Biometria non disponibile",
+          "Inserisci il PIN di autorizzazione manualmente.",
+          [{ text: "OK", onPress: () => { setPinModalMode("approve"); setPinModalVisible(true); } }]
+        );
+        return;
+      }
+      // Annullata dall'utente — non procedere
+      return;
     }
-    await doApprove();
-  }, [request, biometricType, doApprove]);
+
+    // Nessuna biometria: mostra modale PIN
+    setPinModalMode("approve");
+    setPinModalVisible(true);
+  }, [request, biometricType, storedAuthPin, doApprove]);
 
   const handleDeny = useCallback(async () => {
     if (!request) return;
@@ -101,22 +144,28 @@ export default function RequestDetailScreen() {
         {
           text: "Rifiuta",
           style: "destructive",
-          onPress: async () => {
-            setDenying(true);
-            try {
-              await deny(request.id, adminName ?? undefined);
-              router.back();
-            } catch (err: unknown) {
-              const msg = err instanceof Error ? err.message : "Errore";
-              Alert.alert("Errore", msg);
-            } finally {
-              setDenying(false);
+          onPress: () => {
+            if (biometricType !== "none") {
+              // Per il rifiuto biometria non è necessaria, usa il PIN salvato direttamente
+              doDeny(storedAuthPin ?? undefined);
+            } else {
+              setPinModalMode("deny");
+              setPinModalVisible(true);
             }
           },
         },
       ]
     );
-  }, [request, deny, adminName]);
+  }, [request, biometricType, storedAuthPin, doDeny]);
+
+  const handlePinModalConfirm = useCallback(async (enteredPin: string) => {
+    setPinModalVisible(false);
+    if (pinModalMode === "approve") {
+      await doApprove(enteredPin);
+    } else {
+      await doDeny(enteredPin);
+    }
+  }, [pinModalMode, doApprove, doDeny]);
 
   const bottomPadding = insets.bottom + (Platform.OS === "web" ? 34 : 24);
 
@@ -158,7 +207,6 @@ export default function RequestDetailScreen() {
     request.payload?.total ??
     request.payload?.price;
 
-  // Payment method(s) from payload — handle various field names the POS may send
   const rawMethods =
     request.payload?.paymentMethods ??
     request.payload?.payment_methods ??
@@ -193,248 +241,263 @@ export default function RequestDetailScreen() {
       ? "Autorizza con Face ID"
       : biometricType === "fingerprint"
       ? "Autorizza con Touch ID"
-      : "Autorizza";
+      : "Inserisci PIN Autorizzazione";
 
   const approveBtnIcon =
-    biometricType !== "none" ? "smile" : "check-circle";
+    biometricType !== "none" ? "smile" : "key";
 
   return (
-    <ScrollView
-      style={{ backgroundColor: theme.background }}
-      contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding }]}
-      showsVerticalScrollIndicator={false}
-    >
-      {/* Type + description */}
-      <View style={styles.typeChipRow}>
-        <View
-          style={[
-            styles.typeChip,
-            {
-              backgroundColor: isPayment ? "#22C55E20" : theme.primary + "18",
-            },
-          ]}
-        >
-          <Text
+    <>
+      <ScrollView
+        style={{ backgroundColor: theme.background }}
+        contentContainerStyle={[styles.scroll, { paddingBottom: bottomPadding }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Type + description */}
+        <View style={styles.typeChipRow}>
+          <View
             style={[
-              styles.typeText,
-              { color: isPayment ? "#22C55E" : theme.primary },
+              styles.typeChip,
+              {
+                backgroundColor: isPayment ? "#22C55E20" : theme.primary + "18",
+              },
             ]}
           >
-            {typeLabel.toUpperCase()}
-          </Text>
-        </View>
-        {isPayment && (
-          <View style={styles.paymentPriorityBadge}>
-            <Feather name="credit-card" size={11} color="#fff" />
-            <Text style={styles.paymentPriorityText}>CHIUSURA CONTO</Text>
-          </View>
-        )}
-      </View>
-
-      <Text style={[styles.description, { color: theme.foreground }]}>
-        {request.description}
-      </Text>
-
-      {/* Payment — prominent amount + methods block */}
-      {isPayment ? (
-        <View
-          style={[
-            styles.paymentBox,
-            { backgroundColor: isDark ? "#0D1F14" : "#F0FDF4", borderColor: "#22C55E55" },
-          ]}
-        >
-          <View style={styles.paymentBoxTop}>
-            <View>
-              <Text style={[styles.paymentBoxLabel, { color: "#22C55E" }]}>
-                Totale da incassare
-              </Text>
-              <Text style={[styles.paymentBoxAmount, { color: isDark ? "#4ADE80" : "#16A34A" }]}>
-                {amount != null ? `€ ${Number(amount).toFixed(2)}` : "—"}
-              </Text>
-            </View>
-            <View
+            <Text
               style={[
-                styles.paymentIconCircle,
-                { backgroundColor: "#22C55E25" },
+                styles.typeText,
+                { color: isPayment ? "#22C55E" : theme.primary },
               ]}
             >
-              <Feather name="dollar-sign" size={24} color="#22C55E" />
-            </View>
+              {typeLabel.toUpperCase()}
+            </Text>
           </View>
-
-          {paymentMethods.length > 0 && (
-            <View style={styles.paymentMethods}>
-              <Text style={[styles.paymentMethodsLabel, { color: isDark ? "#4ADE80" : "#16A34A" }]}>
-                Metodi di pagamento
-              </Text>
-              <View style={styles.paymentMethodChips}>
-                {paymentMethods.map((m) => (
-                  <View key={m} style={styles.methodChip}>
-                    <Feather name="credit-card" size={11} color="#22C55E" />
-                    <Text style={styles.methodChipText}>
-                      {METHOD_LABELS[m.toLowerCase()] ?? m}
-                    </Text>
-                  </View>
-                ))}
-              </View>
+          {isPayment && (
+            <View style={styles.paymentPriorityBadge}>
+              <Feather name="credit-card" size={11} color="#fff" />
+              <Text style={styles.paymentPriorityText}>CHIUSURA CONTO</Text>
             </View>
           )}
         </View>
-      ) : (
-        /* Generic amount for non-payment types */
-        amount != null && (
+
+        <Text style={[styles.description, { color: theme.foreground }]}>
+          {request.description}
+        </Text>
+
+        {/* Payment — prominent amount + methods block */}
+        {isPayment ? (
           <View
             style={[
-              styles.amountBox,
-              { backgroundColor: theme.card, borderColor: theme.border },
+              styles.paymentBox,
+              { backgroundColor: isDark ? "#0D1F14" : "#F0FDF4", borderColor: "#22C55E55" },
             ]}
           >
-            <Text style={[styles.amountLabel, { color: theme.mutedForeground }]}>
-              Importo
-            </Text>
-            <Text style={[styles.amountValue, { color: theme.primary }]}>
-              € {Number(amount).toFixed(2)}
-            </Text>
-          </View>
-        )
-      )}
+            <View style={styles.paymentBoxTop}>
+              <View>
+                <Text style={[styles.paymentBoxLabel, { color: "#22C55E" }]}>
+                  Totale da incassare
+                </Text>
+                <Text style={[styles.paymentBoxAmount, { color: isDark ? "#4ADE80" : "#16A34A" }]}>
+                  {amount != null ? `€ ${Number(amount).toFixed(2)}` : "—"}
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.paymentIconCircle,
+                  { backgroundColor: "#22C55E25" },
+                ]}
+              >
+                <Feather name="dollar-sign" size={24} color="#22C55E" />
+              </View>
+            </View>
 
-      {/* Info */}
-      <View
-        style={[
-          styles.infoCard,
-          { backgroundColor: theme.card, borderColor: theme.border },
-        ]}
-      >
-        <InfoRow
-          icon="user"
-          label="Operatore"
-          value={request.operatorName}
-          theme={theme}
-        />
-        {request.tableNum && (
+            {paymentMethods.length > 0 && (
+              <View style={styles.paymentMethods}>
+                <Text style={[styles.paymentMethodsLabel, { color: isDark ? "#4ADE80" : "#16A34A" }]}>
+                  Metodi di pagamento
+                </Text>
+                <View style={styles.paymentMethodChips}>
+                  {paymentMethods.map((m) => (
+                    <View key={m} style={styles.methodChip}>
+                      <Feather name="credit-card" size={11} color="#22C55E" />
+                      <Text style={styles.methodChipText}>
+                        {METHOD_LABELS[m.toLowerCase()] ?? m}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+          </View>
+        ) : (
+          amount != null && (
+            <View
+              style={[
+                styles.amountBox,
+                { backgroundColor: theme.card, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.amountLabel, { color: theme.mutedForeground }]}>
+                Importo
+              </Text>
+              <Text style={[styles.amountValue, { color: theme.primary }]}>
+                € {Number(amount).toFixed(2)}
+              </Text>
+            </View>
+          )
+        )}
+
+        {/* Info */}
+        <View
+          style={[
+            styles.infoCard,
+            { backgroundColor: theme.card, borderColor: theme.border },
+          ]}
+        >
           <InfoRow
-            icon="grid"
-            label="Tavolo"
-            value={request.tableNum}
+            icon="user"
+            label="Operatore"
+            value={request.operatorName}
             theme={theme}
           />
+          {request.tableNum && (
+            <InfoRow
+              icon="grid"
+              label="Tavolo"
+              value={request.tableNum}
+              theme={theme}
+            />
+          )}
+          <InfoRow
+            icon="hash"
+            label="Conto"
+            value={request.ticketId}
+            theme={theme}
+          />
+          <InfoRow
+            icon="clock"
+            label="Orario"
+            value={formattedTime}
+            theme={theme}
+          />
+          <InfoRow
+            icon="tag"
+            label="ID"
+            value={request.id.slice(0, 8) + "…"}
+            theme={theme}
+            isLast
+          />
+        </View>
+
+        {/* Payload details */}
+        {payloadEntries.length > 0 && (
+          <>
+            <Text
+              style={[styles.sectionLabel, { color: theme.mutedForeground }]}
+            >
+              DETTAGLI
+            </Text>
+            <View
+              style={[
+                styles.infoCard,
+                { backgroundColor: theme.card, borderColor: theme.border },
+              ]}
+            >
+              {payloadEntries.map(([key, val], i, arr) => (
+                <InfoRow
+                  key={key}
+                  icon="info"
+                  label={formatPayloadKey(key)}
+                  value={String(val)}
+                  theme={theme}
+                  isLast={i === arr.length - 1}
+                />
+              ))}
+            </View>
+          </>
         )}
-        <InfoRow
-          icon="hash"
-          label="Conto"
-          value={request.ticketId}
-          theme={theme}
-        />
-        <InfoRow
-          icon="clock"
-          label="Orario"
-          value={formattedTime}
-          theme={theme}
-        />
-        <InfoRow
-          icon="tag"
-          label="ID"
-          value={request.id.slice(0, 8) + "…"}
-          theme={theme}
-          isLast
-        />
-      </View>
 
-      {/* Payload details */}
-      {payloadEntries.length > 0 && (
-        <>
-          <Text
-            style={[styles.sectionLabel, { color: theme.mutedForeground }]}
-          >
-            DETTAGLI
-          </Text>
+        {/* ── Azioni ────────────────────────────────────────────── */}
+        <View style={styles.actions}>
+          {/* Badge metodo autenticazione */}
           <View
             style={[
-              styles.infoCard,
+              styles.authMethodBadge,
               { backgroundColor: theme.card, borderColor: theme.border },
             ]}
           >
-            {payloadEntries.map(([key, val], i, arr) => (
-              <InfoRow
-                key={key}
-                icon="info"
-                label={formatPayloadKey(key)}
-                value={String(val)}
-                theme={theme}
-                isLast={i === arr.length - 1}
-              />
-            ))}
-          </View>
-        </>
-      )}
-
-      {/* ── Azioni ────────────────────────────────────────────── */}
-      <View style={styles.actions}>
-        {biometricType !== "none" && (
-          <View
-            style={[
-              styles.biometricBadge,
-              { backgroundColor: theme.card, borderColor: theme.border },
-            ]}
-          >
-            <Feather name="smile" size={14} color={theme.mutedForeground} />
-            <Text style={[styles.biometricBadgeText, { color: theme.mutedForeground }]}>
+            <Feather
+              name={biometricType !== "none" ? "smile" : "key"}
+              size={14}
+              color={theme.mutedForeground}
+            />
+            <Text style={[styles.authMethodText, { color: theme.mutedForeground }]}>
               {biometricType === "faceId"
-                ? "Richiede Face ID per autorizzare"
-                : "Richiede Touch ID per autorizzare"}
+                ? "Face ID · oppure PIN autorizzazione"
+                : biometricType === "fingerprint"
+                ? "Touch ID · oppure PIN autorizzazione"
+                : "Richiede PIN di autorizzazione"}
             </Text>
           </View>
-        )}
 
-        {/* Approve */}
-        <TouchableOpacity
-          style={[
-            styles.approveBtn,
-            { backgroundColor: theme.success },
-            (approving || denying) && styles.btnDisabled,
-          ]}
-          onPress={handleApprove}
-          disabled={approving || denying}
-          activeOpacity={0.82}
-        >
-          {approving ? (
-            <ActivityIndicator size={22} color="#fff" />
-          ) : (
-            <>
-              <Feather name={approveBtnIcon} size={22} color="#fff" />
-              <Text style={styles.approveBtnText}>{approveBtnLabel}</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          {/* Approve */}
+          <TouchableOpacity
+            style={[
+              styles.approveBtn,
+              { backgroundColor: theme.success },
+              (approving || denying) && styles.btnDisabled,
+            ]}
+            onPress={handleApprove}
+            disabled={approving || denying}
+            activeOpacity={0.82}
+          >
+            {approving ? (
+              <ActivityIndicator size={22} color="#fff" />
+            ) : (
+              <>
+                <Feather name={approveBtnIcon} size={22} color="#fff" />
+                <Text style={styles.approveBtnText}>{approveBtnLabel}</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-        {/* Deny */}
-        <TouchableOpacity
-          style={[
-            styles.denyBtn,
-            {
-              borderColor: theme.destructive + "55",
-              backgroundColor: theme.destructive + "0D",
-            },
-            (approving || denying) && styles.btnDisabled,
-          ]}
-          onPress={handleDeny}
-          disabled={approving || denying}
-          activeOpacity={0.82}
-        >
-          {denying ? (
-            <ActivityIndicator size={18} color={theme.destructive} />
-          ) : (
-            <>
-              <Feather name="x-circle" size={18} color={theme.destructive} />
-              <Text style={[styles.denyBtnText, { color: theme.destructive }]}>
-                Rifiuta richiesta
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          {/* Deny */}
+          <TouchableOpacity
+            style={[
+              styles.denyBtn,
+              {
+                borderColor: theme.destructive + "55",
+                backgroundColor: theme.destructive + "0D",
+              },
+              (approving || denying) && styles.btnDisabled,
+            ]}
+            onPress={handleDeny}
+            disabled={approving || denying}
+            activeOpacity={0.82}
+          >
+            {denying ? (
+              <ActivityIndicator size={18} color={theme.destructive} />
+            ) : (
+              <>
+                <Feather name="x-circle" size={18} color={theme.destructive} />
+                <Text style={[styles.denyBtnText, { color: theme.destructive }]}>
+                  Rifiuta richiesta
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      {/* Modale PIN autorizzazione */}
+      <PinAuthModal
+        visible={pinModalVisible}
+        onConfirm={handlePinModalConfirm}
+        onCancel={() => setPinModalVisible(false)}
+        title={pinModalMode === "approve" ? "Autorizza Richiesta" : "Rifiuta Richiesta"}
+        subtitle={`${typeLabel} · ${request.operatorName}`}
+      />
+    </>
   );
 }
 
@@ -550,7 +613,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  biometricBadge: {
+  authMethodBadge: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -560,7 +623,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  biometricBadgeText: {
+  authMethodText: {
     fontSize: 13,
     fontFamily: "Inter_400Regular",
   },
@@ -596,7 +659,6 @@ const styles = StyleSheet.create({
 
   btnDisabled: { opacity: 0.55 },
 
-  // Payment-specific styles
   typeChipRow: {
     flexDirection: "row",
     alignItems: "center",
