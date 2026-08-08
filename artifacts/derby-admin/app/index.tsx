@@ -503,12 +503,12 @@ export default function LoginScreen() {
                   <TextInput
                     ref={pinRef}
                     style={[styles.input, { color: theme.foreground }]}
-                    placeholder="PIN di accesso"
+                    placeholder="Password di accesso"
                     placeholderTextColor={theme.mutedForeground}
                     value={pin}
                     onChangeText={(t) => { setPin(t); clearError(); }}
                     secureTextEntry={!showPin}
-                    keyboardType="number-pad"
+                    keyboardType="default"
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="next"
@@ -524,12 +524,12 @@ export default function LoginScreen() {
                   <TextInput
                     ref={authPinRef}
                     style={[styles.input, { color: theme.foreground }]}
-                    placeholder="PIN di autorizzazione (opzionale)"
+                    placeholder="Password di autorizzazione (opzionale)"
                     placeholderTextColor={theme.mutedForeground}
                     value={authPin}
                     onChangeText={(t) => { setAuthPin(t); clearError(); }}
                     secureTextEntry={!showAuthPin}
-                    keyboardType="number-pad"
+                    keyboardType="default"
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="done"

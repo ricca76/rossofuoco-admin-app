@@ -156,7 +156,7 @@ export function PinAuthModal({
               value={pin}
               onChangeText={(t) => { setPin(t); setError(null); }}
               secureTextEntry={!showPin}
-              keyboardType="number-pad"
+              keyboardType="default"
               autoCapitalize="none"
               autoCorrect={false}
               onSubmitEditing={handleConfirm}
