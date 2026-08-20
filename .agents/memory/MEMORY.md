@@ -1,3 +1,4 @@
 - [Expo-font Metro crash](expo-font-metro-crash.md) — Metro crasha con ENOENT su expo-font_tmp_* dopo installazioni parziali; fix: rm tmp dirs + reinstall
 - [Face recognition architecture](face-recognition-arch.md) — POS espone solo descriptor 128-float; il match avviene lato client; estrazione reale richiede native build (TF.js non gira in Expo Go)
 - [AI assistant routing](ai-assistant-routing.md) — route Claude su /api/ai/chat; usa Replit AI Integrations (no API key utente); integrazione anthropic-ai in lib/
+- [Expo Go proxy startup](expo-go-proxy-startup.md) — il proxy pubblico richiede health-check immediato e manifest Expo esplicito per evitare il fallback HTML 404.

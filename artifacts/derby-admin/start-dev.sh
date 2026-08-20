@@ -54,6 +54,12 @@ function proxyToMetro(req, res) {
   if (!req.headers["expo-sdk-version"]) {
     req.headers["expo-sdk-version"] = "54.0.0";
   }
+  // Metro sceglie il manifest Expo in base all'header Accept. Alcune
+  // richieste iniziali di Expo Go arrivano con Accept: */*, quindi forza
+  // esplicitamente il formato del manifest per la richiesta di avvio.
+  if (req.url === "/" && !req.headers["accept"]?.includes("application/expo+json")) {
+    req.headers["accept"] = "application/expo+json,application/json";
+  }
 
   const options = {
     hostname: "127.0.0.1",
