@@ -21,7 +21,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useRequests } from "@/context/RequestsContext";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import {
-  resolveRequest,
   sendPrinterMessage,
   reprintTicket,
   getPrinterGroups,
@@ -255,8 +254,8 @@ export default function AssistantScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
-  const { adminName, serverConfig } = useAuth();
-  const { requests, refresh } = useRequests();
+  const { adminName, serverConfig, authPin } = useAuth();
+  const { requests, refresh, approve, deny } = useRequests();
 
   const [appState, setAppState] = useState<AppState>("idle");
   const [transcript, setTranscript] = useState("");
@@ -322,7 +321,7 @@ export default function AssistantScreen() {
               text: "Approva",
               onPress: async () => {
                 try {
-                  await resolveRequest(reqId, true, adminName ?? undefined);
+                  await approve(reqId, adminName ?? undefined, authPin ?? undefined);
                   await refresh();
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   addFeedback(`✓ Richiesta "${desc}" approvata.`, "ok");
@@ -346,7 +345,7 @@ export default function AssistantScreen() {
               style: "destructive",
               onPress: async () => {
                 try {
-                  await resolveRequest(reqId, false, adminName ?? undefined);
+                  await deny(reqId, adminName ?? undefined, authPin ?? undefined);
                   await refresh();
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   addFeedback(`✗ Richiesta "${desc}" rifiutata.`, "ok");
@@ -370,7 +369,10 @@ export default function AssistantScreen() {
               onPress: async () => {
                 let ok = 0; let fail = 0;
                 for (const id of ids) {
-                  try { await resolveRequest(id, true, adminName ?? undefined); ok++; }
+                  try {
+                    await approve(id, adminName ?? undefined, authPin ?? undefined);
+                    ok++;
+                  }
                   catch { fail++; }
                 }
                 await refresh();
@@ -403,7 +405,11 @@ export default function AssistantScreen() {
           const ticketId = params.ticketId as string;
           if (!ticketId) break;
           try {
-            await reprintTicket(ticketId);
+            const requestedPgId = params.pgId as string | undefined;
+            const pgId =
+              requestedPgId ??
+              (printerGroups.length === 1 ? printerGroups[0].pgId : undefined);
+            await reprintTicket(ticketId, pgId);
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             addFeedback(`✓ Scontrino ${ticketId} inviato alla stampante.`, "ok");
           } catch (err) {
@@ -416,7 +422,7 @@ export default function AssistantScreen() {
           break;
       }
     },
-    [adminName, refresh, addFeedback]
+    [adminName, authPin, refresh, approve, deny, addFeedback, printerGroups]
   );
 
   // ── Send to Claude ────────────────────────────────────────────────────────

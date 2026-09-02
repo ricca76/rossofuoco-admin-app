@@ -45,6 +45,33 @@ let _baseUrl = "";
 let _adminToken: string | null = null;
 let _adminUserId: number | null = null;
 
+class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asOptionalString(value: unknown): string | null {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text ? text : null;
+}
+
+function asFiniteNumber(value: unknown, fallback: number): number {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 export function configureApi(config: ServerConfig) {
   if (config.baseUrl?.trim()) {
     _baseUrl = config.baseUrl.trim().replace(/\/$/, "");
@@ -143,7 +170,10 @@ async function apiRequest<T>(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(extractErrorMessage(text, response.status));
+    throw new ApiRequestError(
+      extractErrorMessage(text, response.status),
+      response.status
+    );
   }
 
   if (response.status === 204) {
@@ -174,36 +204,124 @@ async function apiRequest<T>(
 }
 
 export async function getAdminUsers(): Promise<AdminUser[]> {
-  const res = await apiRequest<{ users: AdminUser[] }>("/users");
-  const all = Array.isArray(res.users) ? res.users : [];
-  return all.filter((u) => u.isAdmin && u.active && u.hasPinSet);
+  const raw = await apiRequest<unknown>("/users");
+  const envelope = asRecord(raw);
+  const candidates = Array.isArray(raw)
+    ? raw
+    : Array.isArray(envelope.users)
+      ? envelope.users
+      : Array.isArray(envelope.data)
+        ? envelope.data
+        : [];
+
+  return candidates
+    .map((value) => {
+      const user = asRecord(value);
+      return {
+        id: asFiniteNumber(user.id ?? user.userId, 0),
+        firstName: String(user.firstName ?? user.first_name ?? user.name ?? ""),
+        lastName: String(user.lastName ?? user.last_name ?? ""),
+        active: user.active !== false && user.isActive !== false,
+        isAdmin:
+          user.isAdmin === true ||
+          user.admin === true ||
+          String(user.role ?? "").toLowerCase() === "admin",
+        hasPinSet:
+          user.hasPinSet !== false &&
+          user.has_pin_set !== false &&
+          user.pinConfigured !== false,
+        visibleInLogin:
+          user.visibleInLogin !== false && user.visible_in_login !== false,
+      } satisfies AdminUser;
+    })
+    .filter((user) => user.id > 0 && user.isAdmin && user.active && user.hasPinSet);
 }
 
 export async function login(
   credentials: AdminCredentials
 ): Promise<LoginResponse> {
-  const res = await apiRequest<{ ok: boolean; userId: number; name: string; token?: string }>(
+  const raw = await apiRequest<unknown>(
     "/users/verify-admin-pin",
     "POST",
     { pin: credentials.pin }
   );
-  if (!res.ok) {
+  const res = asRecord(raw);
+  const user = asRecord(res.user ?? res.admin);
+  if (res.ok === false || res.success === false) {
     throw new Error("PIN non riconosciuto o utente non ha permessi admin.");
   }
-  if (res.token) {
-    _adminToken = res.token;
+  const userId = asFiniteNumber(
+    res.userId ?? res.adminId ?? res.id ?? user.userId ?? user.id,
+    0
+  );
+  const adminName =
+    asOptionalString(res.name ?? res.adminName ?? user.name) ??
+    [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  const token = asOptionalString(res.token ?? res.accessToken) ?? undefined;
+  if (!userId || !adminName) {
+    throw new Error("Risposta login incompleta dal POS. Aggiorna Rosso Fuoco Console.");
   }
-  _adminUserId = res.userId;
+  if (token) {
+    _adminToken = token;
+  }
+  _adminUserId = userId;
   return {
-    adminName: res.name,
-    userId: res.userId,
-    token: res.token,
+    adminName,
+    userId,
+    token,
   };
 }
 
 export async function getPendingRequests(): Promise<AuthRequest[]> {
-  const result = await apiRequest<{ requests: AuthRequest[] }>("/auth-requests");
-  return Array.isArray(result.requests) ? result.requests : [];
+  const raw = await apiRequest<unknown>("/auth-requests");
+  const envelope = asRecord(raw);
+  const candidates = Array.isArray(raw)
+    ? raw
+    : Array.isArray(envelope.requests)
+      ? envelope.requests
+      : Array.isArray(envelope.data)
+        ? envelope.data
+        : [];
+
+  return candidates
+    .map((value, index) => {
+      const request = asRecord(value);
+      const payload = asRecord(request.payload ?? request.data);
+      const rawCreatedAt =
+        request.createdAt ?? request.created_at ?? request.timestamp ?? Date.now();
+      const numericCreatedAt = Number(rawCreatedAt);
+      const parsedCreatedAt =
+        typeof rawCreatedAt === "string" ? Date.parse(rawCreatedAt) : NaN;
+      const createdAt = Number.isFinite(numericCreatedAt)
+        ? numericCreatedAt
+        : Number.isFinite(parsedCreatedAt)
+          ? parsedCreatedAt
+          : Date.now();
+      return {
+        id: String(request.id ?? request.requestId ?? request.request_id ?? `request-${index}`),
+        type: String(request.type ?? request.requestType ?? request.request_type ?? "authorization"),
+        operatorName: String(
+          request.operatorName ?? request.operator_name ?? request.userName ?? ""
+        ),
+        operatorId:
+          request.operatorId != null || request.operator_id != null
+            ? asFiniteNumber(request.operatorId ?? request.operator_id, 0)
+            : null,
+        ticketId: String(request.ticketId ?? request.ticket_id ?? ""),
+        tableNum: asOptionalString(
+          request.tableNum ?? request.table_num ?? request.table
+        ),
+        description: String(
+          request.description ?? request.message ?? request.reason ?? ""
+        ),
+        payload,
+        status: ["approved", "denied"].includes(String(request.status))
+          ? (String(request.status) as "approved" | "denied")
+          : "pending",
+        createdAt,
+      } satisfies AuthRequest;
+    })
+    .filter((request) => request.status === "pending");
 }
 
 export async function resolveRequest(
@@ -225,7 +343,13 @@ export async function resolveRequest(
     // campo alternativo usato da alcune versioni del POS
     body.adminPin = authPin;
   }
-  await apiRequest<{ ok: boolean }>(`/auth-requests/${id}/resolve`, "POST", body);
+  // Non ritentare mai automaticamente una mutazione: un errore potrebbe
+  // arrivare dopo che il POS ha già applicato la decisione.
+  await apiRequest<unknown>(
+    `/auth-requests/${encodeURIComponent(id)}/resolve`,
+    "POST",
+    body
+  );
 }
 
 // ── Receipts ──────────────────────────────────────────────────────────────────
@@ -653,38 +777,61 @@ export function subscribeToEvents(
   let xhr: XMLHttpRequest | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let lastIndex = 0;
+  let eventBuffer = "";
 
-  function parseEvents(chunk: string) {
-    const lines = chunk.split("\n");
+  function parseEvent(block: string) {
+    const lines = block.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     let eventType = "message";
-    let dataBuffer = "";
+    const dataLines: string[] = [];
 
     for (const line of lines) {
       if (line.startsWith("event:")) {
         eventType = line.slice(6).trim();
       } else if (line.startsWith("data:")) {
-        dataBuffer += line.slice(5).trim();
-      } else if (line === "") {
-        if (dataBuffer) {
-          try {
-            onEvent(eventType, JSON.parse(dataBuffer));
-          } catch {
-            onEvent(eventType, dataBuffer);
-          }
-          eventType = "message";
-          dataBuffer = "";
-        }
+        dataLines.push(line.slice(5).replace(/^ /, ""));
       }
     }
+    const dataBuffer = dataLines.join("\n");
+    if (dataBuffer) {
+      try {
+        onEvent(eventType, JSON.parse(dataBuffer));
+      } catch {
+        onEvent(eventType, dataBuffer);
+      }
+    }
+  }
+
+  function parseEvents(chunk: string) {
+    // Conserva il framing grezzo tra i chunk: il confine XHR può cadere
+    // esattamente tra \r e \n.
+    eventBuffer += chunk;
+    const blocks = eventBuffer.split(/\r?\n\r?\n/);
+    eventBuffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      if (block.trim()) parseEvent(block);
+    }
+  }
+
+  function scheduleReconnect() {
+    if (closed || reconnectTimer) return;
+    onError?.();
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, 5000);
   }
 
   function connect() {
     if (closed) return;
     lastIndex = 0;
+    eventBuffer = "";
     xhr = new XMLHttpRequest();
     xhr.open("GET", url, true);
     xhr.setRequestHeader("Accept", "text/event-stream");
     xhr.setRequestHeader("Cache-Control", "no-cache");
+    if (_adminToken) {
+      xhr.setRequestHeader("Authorization", `Bearer ${_adminToken}`);
+    }
 
     xhr.onreadystatechange = () => {
       if (closed) return;
@@ -695,19 +842,13 @@ export function subscribeToEvents(
       }
       if (xhr && xhr.readyState === 4) {
         xhr = null;
-        if (!closed) {
-          onError?.();
-          reconnectTimer = setTimeout(connect, 5000);
-        }
+        scheduleReconnect();
       }
     };
 
     xhr.onerror = () => {
       xhr = null;
-      if (!closed) {
-        onError?.();
-        reconnectTimer = setTimeout(connect, 5000);
-      }
+      scheduleReconnect();
     };
 
     xhr.send();

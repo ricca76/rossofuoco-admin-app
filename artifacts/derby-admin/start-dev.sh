@@ -90,6 +90,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Se il dominio viene aperto da un browser normale, non consegnare il
+  // manifest come download JSON: quel formato serve solo a Expo Go.
+  const userAgent = req.headers["user-agent"] ?? "";
+  const acceptsExpoManifest =
+    (req.headers["accept"] ?? "").includes("application/expo+json") ||
+    Boolean(req.headers["expo-platform"]) ||
+    Boolean(req.headers["exponent-platform"]);
+  if (req.url === "/" && /Mozilla\//i.test(userAgent) && !acceptsExpoManifest) {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(`<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><title>Rosso Admin</title></head>
+<body style="font-family:system-ui;max-width:36rem;margin:4rem auto;padding:0 1rem">
+<h1>Rosso Admin</h1>
+<p>Questo indirizzo è il collegamento di sviluppo per Expo Go.</p>
+<p>Apri Expo Go e scansiona il QR code del progetto, oppure inserisci
+<code>exp://${process.env.REPLIT_EXPO_DEV_DOMAIN ?? ""}</code> nell'app.</p>
+</body></html>`);
+    return;
+  }
+
   // Per tutte le altre richieste, aspetta che Metro sia pronto
   waitForMetro(() => proxyToMetro(req, res));
 });
