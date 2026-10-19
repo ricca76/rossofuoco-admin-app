@@ -3,8 +3,8 @@ name: GitHub transport authorization
 description: Distinzione tra autorizzazione API e trasporto Git/LFS nelle copie del progetto su GitHub.
 ---
 
-Verificare separatamente l'autenticazione Git/LFS prima di creare una destinazione per un trasferimento completo; non considerare sufficiente il successo delle API GitHub App.
+Verificare separatamente l'autenticazione Git/LFS in scrittura prima di un trasferimento completo; non considerare sufficienti le API GitHub App o la lettura di un repository pubblico.
 
-**Why:** In questo ambiente le chiamate API funzionavano mentre il trasporto Git rifiutava l'autenticazione, anche con una connessione dichiarata attiva.
+**Why:** Le API e la lettura pubblica possono funzionare mentre l'autenticazione in scrittura resta bloccata, anche con una connessione dichiarata attiva.
 
-**How to apply:** Per trasferimenti del progetto con file LFS, verificare il trasporto prima delle scritture sul repository remoto. Tenere credenziali e token fuori dalla chat.
+**How to apply:** Usare una verifica di push senza modifiche remote per distinguere accesso pubblico da autorizzazione in scrittura. Tenere credenziali e token fuori dalla chat.
