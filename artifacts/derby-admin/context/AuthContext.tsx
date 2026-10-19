@@ -12,7 +12,7 @@ import {
   clearAdminCredentials,
   configureApi,
   login,
-  setAdminToken,
+  setAdminApprovalToken,
   setAdminUserId,
 } from "@/services/derbyApi";
 
@@ -79,7 +79,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? JSON.parse(configStr)
           : null;
         if (serverConfig) configureApi(serverConfig);
-        if (savedToken) setAdminToken(savedToken);
+        // Il token di approvazione ha TTL breve lato POS: ripristinarlo è
+        // innocuo (scadrà presto) — l'autenticazione reale è via x-op-id.
+        if (savedToken) setAdminApprovalToken(savedToken);
         const userId = userIdStr ? Number(userIdStr) : null;
         if (userId !== null) setAdminUserId(userId);
         setState({
@@ -124,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       await Promise.all(saves);
       setAdminUserId(res.userId);
-      if (res.token) setAdminToken(res.token);
+      if (res.token) setAdminApprovalToken(res.token);
       setState((s) => ({
         ...s,
         isConnected: true,
@@ -167,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       await Promise.all(saves);
       setAdminUserId(res.userId);
-      if (res.token) setAdminToken(res.token);
+      if (res.token) setAdminApprovalToken(res.token);
       setState((s) => ({
         ...s,
         isConnected: true,

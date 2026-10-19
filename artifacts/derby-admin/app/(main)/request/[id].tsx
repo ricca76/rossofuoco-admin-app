@@ -5,10 +5,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
   useColorScheme,
@@ -25,9 +28,16 @@ import {
 } from "@/services/biometrics";
 
 const TYPE_LABELS: Record<string, string> = {
+  // Tipi effettivi del POS aggiornato
   void_item: "Annullamento articolo",
-  void_ticket: "Annullamento conto",
+  qty_reduce: "Riduzione quantità",
   discount: "Sconto",
+  delete_ticket: "Eliminazione conto",
+  reopen_ticket: "Riapertura conto",
+  transfer_ticket: "Trasferimento conto",
+  split_ticket: "Divisione conto",
+  // Tipi legacy / alias ancora possibili
+  void_ticket: "Annullamento conto",
   refund: "Rimborso",
   override: "Override",
   access: "Accesso",
@@ -36,6 +46,12 @@ const TYPE_LABELS: Record<string, string> = {
   reopen: "Riapertura conto",
   delete: "Eliminazione",
 };
+
+/**
+ * Tipi per cui il POS richiede OBBLIGATORIAMENTE una motivazione quando si
+ * APPROVA la richiesta (altrimenti risponde HTTP 400).
+ */
+const REASON_REQUIRED_TYPES = new Set(["void_item", "qty_reduce"]);
 
 function formatPayloadKey(key: string): string {
   return key
@@ -52,30 +68,35 @@ export default function RequestDetailScreen() {
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
   const { getRequest, approve, deny } = useRequests();
-  const { adminName, authPin: storedAuthPin } = useAuth();
+  const { adminName } = useAuth();
 
   const request = getRequest(id ?? "");
   const [approving, setApproving] = useState(false);
   const [denying, setDenying] = useState(false);
   const [biometricType, setBiometricType] = useState<BiometricType>("none");
 
-  // PIN modale state
+  // PIN modale state (gate locale di conferma identità admin)
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinModalMode, setPinModalMode] = useState<"approve" | "deny">("approve");
+
+  // Modale motivazione (obbligatoria per approvare gli storni)
+  const [reasonModalVisible, setReasonModalVisible] = useState(false);
+  const [reasonText, setReasonText] = useState("");
 
   useEffect(() => {
     getBiometricType().then(setBiometricType).catch(() => {});
   }, []);
 
   /**
-   * Esegue l'approvazione finale con authPin noto.
-   * authPin può venire dalla biometria (usa il PIN salvato) o dalla modale.
+   * Esegue l'approvazione finale.
+   * `reason` è obbligatorio per gli storni (void_item / qty_reduce) — il POS
+   * lo verifica lato server. L'identità admin è trasmessa via header x-op-id.
    */
-  const doApprove = useCallback(async (authPin?: string) => {
+  const doApprove = useCallback(async (reason?: string) => {
     if (!request) return;
     setApproving(true);
     try {
-      await approve(request.id, adminName ?? undefined, authPin);
+      await approve(request.id, adminName ?? undefined, reason);
       router.back();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Errore";
@@ -86,11 +107,11 @@ export default function RequestDetailScreen() {
     }
   }, [request, approve, adminName]);
 
-  const doDeny = useCallback(async (authPin?: string) => {
+  const doDeny = useCallback(async (reason?: string) => {
     if (!request) return;
     setDenying(true);
     try {
-      await deny(request.id, adminName ?? undefined, authPin);
+      await deny(request.id, adminName ?? undefined, reason);
       router.back();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Errore";
@@ -102,9 +123,24 @@ export default function RequestDetailScreen() {
   }, [request, deny, adminName]);
 
   /**
+   * Dopo che il gate locale (biometria/PIN) è superato: se il tipo richiede
+   * una motivazione, apre la modale; altrimenti approva direttamente.
+   */
+  const proceedApprove = useCallback(() => {
+    if (!request) return;
+    if (REASON_REQUIRED_TYPES.has(request.type)) {
+      setReasonText("");
+      setReasonModalVisible(true);
+    } else {
+      doApprove();
+    }
+  }, [request, doApprove]);
+
+  /**
    * Flusso approvazione:
-   * 1. Se biometria disponibile → autenticazione biometrica → usa PIN di autorizzazione salvato
-   * 2. Se biometria non disponibile → mostra modale PIN autorizzazione
+   * 1. Se biometria disponibile → autenticazione biometrica (gate locale)
+   * 2. Se biometria non disponibile → mostra modale PIN (gate locale)
+   * Superato il gate → proceedApprove() (eventuale motivazione).
    */
   const handleApprove = useCallback(async () => {
     if (!request) return;
@@ -112,15 +148,14 @@ export default function RequestDetailScreen() {
     if (biometricType !== "none") {
       const bio = await authenticateWithBiometrics("Autorizza richiesta");
       if (bio.success) {
-        // Biometria ok: usa il PIN di autorizzazione salvato
-        await doApprove(storedAuthPin ?? undefined);
+        proceedApprove();
         return;
       }
       if (bio.error && bio.error !== "Autenticazione annullata.") {
         // Biometria fallita per errore — cade sul PIN manuale
         Alert.alert(
           "Biometria non disponibile",
-          "Inserisci il PIN di autorizzazione manualmente.",
+          "Conferma la tua identità con il PIN.",
           [{ text: "OK", onPress: () => { setPinModalMode("approve"); setPinModalVisible(true); } }]
         );
         return;
@@ -132,7 +167,7 @@ export default function RequestDetailScreen() {
     // Nessuna biometria: mostra modale PIN
     setPinModalMode("approve");
     setPinModalVisible(true);
-  }, [request, biometricType, storedAuthPin, doApprove]);
+  }, [request, biometricType, proceedApprove]);
 
   const handleDeny = useCallback(async () => {
     if (!request) return;
@@ -146,8 +181,8 @@ export default function RequestDetailScreen() {
           style: "destructive",
           onPress: () => {
             if (biometricType !== "none") {
-              // Per il rifiuto biometria non è necessaria, usa il PIN salvato direttamente
-              doDeny(storedAuthPin ?? undefined);
+              // Il rifiuto non richiede motivazione né gate aggiuntivo lato POS
+              doDeny();
             } else {
               setPinModalMode("deny");
               setPinModalVisible(true);
@@ -156,16 +191,31 @@ export default function RequestDetailScreen() {
         },
       ]
     );
-  }, [request, biometricType, storedAuthPin, doDeny]);
+  }, [request, biometricType, doDeny]);
 
-  const handlePinModalConfirm = useCallback(async (enteredPin: string) => {
+  const handlePinModalConfirm = useCallback(async () => {
+    // Il PIN qui è solo un gate locale di conferma identità: non viene inviato
+    // al POS (l'auth avviene tramite header x-op-id).
     setPinModalVisible(false);
     if (pinModalMode === "approve") {
-      await doApprove(enteredPin);
+      proceedApprove();
     } else {
-      await doDeny(enteredPin);
+      await doDeny();
     }
-  }, [pinModalMode, doApprove, doDeny]);
+  }, [pinModalMode, proceedApprove, doDeny]);
+
+  const handleReasonConfirm = useCallback(() => {
+    const reason = reasonText.trim();
+    if (!reason) {
+      Alert.alert(
+        "Motivazione obbligatoria",
+        "Devi inserire una motivazione per approvare uno storno."
+      );
+      return;
+    }
+    setReasonModalVisible(false);
+    doApprove(reason);
+  }, [reasonText, doApprove]);
 
   const bottomPadding = insets.bottom + (Platform.OS === "web" ? 34 : 24);
 
@@ -489,14 +539,76 @@ export default function RequestDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Modale PIN autorizzazione */}
+      {/* Modale PIN (gate locale di conferma identità) */}
       <PinAuthModal
         visible={pinModalVisible}
         onConfirm={handlePinModalConfirm}
         onCancel={() => setPinModalVisible(false)}
-        title={pinModalMode === "approve" ? "Autorizza Richiesta" : "Rifiuta Richiesta"}
+        title={pinModalMode === "approve" ? "Conferma identità" : "Conferma identità"}
         subtitle={`${typeLabel} · ${request.operatorName}`}
       />
+
+      {/* Modale motivazione storno (obbligatoria lato POS) */}
+      <Modal
+        visible={reasonModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReasonModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          style={styles.reasonOverlay}
+        >
+          <View
+            style={[
+              styles.reasonCard,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.reasonTitle, { color: theme.foreground }]}>
+              Motivazione storno
+            </Text>
+            <Text style={[styles.reasonSubtitle, { color: theme.mutedForeground }]}>
+              {typeLabel} · {request.operatorName}
+            </Text>
+            <TextInput
+              style={[
+                styles.reasonInput,
+                {
+                  color: theme.foreground,
+                  borderColor: theme.border,
+                  backgroundColor: theme.background,
+                },
+              ]}
+              placeholder="Es. errore di battitura, cliente non presente…"
+              placeholderTextColor={theme.mutedForeground}
+              value={reasonText}
+              onChangeText={setReasonText}
+              multiline
+              autoFocus
+              maxLength={200}
+            />
+            <View style={styles.reasonButtons}>
+              <TouchableOpacity
+                style={[styles.reasonCancelBtn, { borderColor: theme.border }]}
+                onPress={() => setReasonModalVisible(false)}
+                activeOpacity={0.82}
+              >
+                <Text style={[styles.reasonCancelText, { color: theme.foreground }]}>
+                  Annulla
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.reasonConfirmBtn, { backgroundColor: theme.success }]}
+                onPress={handleReasonConfirm}
+                activeOpacity={0.82}
+              >
+                <Text style={styles.reasonConfirmText}>Approva storno</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </>
   );
 }
@@ -740,5 +852,69 @@ const styles = StyleSheet.create({
     color: "#22C55E",
     fontSize: 13,
     fontFamily: "Inter_500Medium",
+  },
+
+  reasonOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  reasonCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 20,
+    gap: 12,
+  },
+  reasonTitle: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+  },
+  reasonSubtitle: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    marginTop: -6,
+  },
+  reasonInput: {
+    minHeight: 88,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+    textAlignVertical: "top",
+  },
+  reasonButtons: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  reasonCancelBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reasonCancelText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  reasonConfirmBtn: {
+    flex: 1.4,
+    height: 48,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reasonConfirmText: {
+    color: "#fff",
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
   },
 });

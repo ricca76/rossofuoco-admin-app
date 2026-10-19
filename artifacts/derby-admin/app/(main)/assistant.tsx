@@ -254,7 +254,7 @@ export default function AssistantScreen() {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   const theme = isDark ? colors.dark : colors.light;
-  const { adminName, serverConfig, authPin } = useAuth();
+  const { adminName, serverConfig } = useAuth();
   const { requests, refresh, approve, deny } = useRequests();
 
   const [appState, setAppState] = useState<AppState>("idle");
@@ -321,7 +321,7 @@ export default function AssistantScreen() {
               text: "Approva",
               onPress: async () => {
                 try {
-                  await approve(reqId, adminName ?? undefined, authPin ?? undefined);
+                  await approve(reqId, adminName ?? undefined, "Approvato tramite assistente");
                   await refresh();
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   addFeedback(`✓ Richiesta "${desc}" approvata.`, "ok");
@@ -345,7 +345,7 @@ export default function AssistantScreen() {
               style: "destructive",
               onPress: async () => {
                 try {
-                  await deny(reqId, adminName ?? undefined, authPin ?? undefined);
+                  await deny(reqId, adminName ?? undefined);
                   await refresh();
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                   addFeedback(`✗ Richiesta "${desc}" rifiutata.`, "ok");
@@ -370,7 +370,7 @@ export default function AssistantScreen() {
                 let ok = 0; let fail = 0;
                 for (const id of ids) {
                   try {
-                    await approve(id, adminName ?? undefined, authPin ?? undefined);
+                    await approve(id, adminName ?? undefined, "Approvato tramite assistente");
                     ok++;
                   }
                   catch { fail++; }
@@ -422,7 +422,7 @@ export default function AssistantScreen() {
           break;
       }
     },
-    [adminName, authPin, refresh, approve, deny, addFeedback, printerGroups]
+    [adminName, refresh, approve, deny, addFeedback, printerGroups]
   );
 
   // ── Send to Claude ────────────────────────────────────────────────────────

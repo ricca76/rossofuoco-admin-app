@@ -42,7 +42,18 @@ export interface LoginResponse {
 }
 
 let _baseUrl = "";
+/**
+ * Token legacy (Authorization: Bearer). Mantenuto per retrocompatibilità con
+ * versioni vecchie del POS, ma NON è il meccanismo primario di autenticazione.
+ */
 let _adminToken: string | null = null;
+/**
+ * Token capability di approvazione emesso da /users/verify-admin-pin
+ * (mintAdminApprovalToken). Va inviato nell'header `x-admin-approval` ed è
+ * valido SOLO nei gate di approvazione. TTL breve (~2 min lato POS).
+ */
+let _adminApprovalToken: string | null = null;
+/** Identità operatore: inviata come header `x-op-id`. Non scade. */
 let _adminUserId: number | null = null;
 
 class ApiRequestError extends Error {
@@ -88,12 +99,17 @@ export function setAdminToken(token: string | null) {
   _adminToken = token;
 }
 
+export function setAdminApprovalToken(token: string | null) {
+  _adminApprovalToken = token;
+}
+
 export function setAdminUserId(userId: number | null) {
   _adminUserId = userId;
 }
 
 export function clearAdminCredentials() {
   _adminToken = null;
+  _adminApprovalToken = null;
   _adminUserId = null;
 }
 
@@ -131,6 +147,17 @@ async function apiRequest<T>(
     "Content-Type": "application/json",
     Accept: "application/json",
   };
+  // Identità operatore: il POS ri-verifica i permessi admin dal DB.
+  // È il meccanismo primario e NON scade (funziona in LAN).
+  if (_adminUserId !== null) {
+    headers["x-op-id"] = String(_adminUserId);
+  }
+  // Token capability di approvazione (TTL breve lato POS). Usato dai gate
+  // di approvazione (es. risoluzione auth-requests).
+  if (_adminApprovalToken) {
+    headers["x-admin-approval"] = _adminApprovalToken;
+  }
+  // Retrocompatibilità con POS vecchi che leggevano il Bearer.
   if (_adminToken) {
     headers["Authorization"] = `Bearer ${_adminToken}`;
   }
@@ -237,19 +264,29 @@ export async function getAdminUsers(): Promise<AdminUser[]> {
     .filter((user) => user.id > 0 && user.isAdmin && user.active && user.hasPinSet);
 }
 
-export async function login(
-  credentials: AdminCredentials
-): Promise<LoginResponse> {
-  const raw = await apiRequest<unknown>(
-    "/users/verify-admin-pin",
-    "POST",
-    { pin: credentials.pin }
-  );
+/**
+ * Prova verify-admin-pin con una singola credenziale. Restituisce la risposta
+ * di login se accettata, `null` se la credenziale è sbagliata (401/403 "PIN
+ * non riconosciuto"), e propaga qualsiasi altro errore (rete, postazione, 5xx).
+ */
+async function tryVerifyAdminPin(secret: string): Promise<LoginResponse | null> {
+  let raw: unknown;
+  try {
+    raw = await apiRequest<unknown>("/users/verify-admin-pin", "POST", {
+      pin: secret,
+    });
+  } catch (err: unknown) {
+    if (err instanceof ApiRequestError) {
+      // Postazione non autorizzata: errore definitivo, da mostrare subito.
+      if (/postazione|device/i.test(err.message)) throw err;
+      // 401/403 su credenziale errata → segnala "prova la prossima".
+      if (err.status === 401 || err.status === 403) return null;
+    }
+    throw err;
+  }
   const res = asRecord(raw);
   const user = asRecord(res.user ?? res.admin);
-  if (res.ok === false || res.success === false) {
-    throw new Error("PIN non riconosciuto o utente non ha permessi admin.");
-  }
+  if (res.ok === false || res.success === false) return null;
   const userId = asFiniteNumber(
     res.userId ?? res.adminId ?? res.id ?? user.userId ?? user.id,
     0
@@ -261,15 +298,43 @@ export async function login(
   if (!userId || !adminName) {
     throw new Error("Risposta login incompleta dal POS. Aggiorna Rosso Fuoco Console.");
   }
-  if (token) {
-    _adminToken = token;
+  return { adminName, userId, token };
+}
+
+export async function login(
+  credentials: AdminCredentials
+): Promise<LoginResponse> {
+  // Il POS valida su verify-admin-pin `authPinHash ?? pinHash`: se l'admin ha
+  // una password di autorizzazione dedicata, è l'UNICA accettata qui. Non
+  // sappiamo in quale campo l'utente l'ha digitata, quindi proviamo entrambe
+  // (prima la password di autorizzazione, poi quella di accesso).
+  const candidates = Array.from(
+    new Set(
+      [credentials.authPin?.trim(), credentials.pin?.trim()].filter(
+        (v): v is string => !!v
+      )
+    )
+  );
+  if (candidates.length === 0) {
+    throw new Error("Inserisci la password amministrativa.");
   }
-  _adminUserId = userId;
-  return {
-    adminName,
-    userId,
-    token,
-  };
+
+  let result: LoginResponse | null = null;
+  for (const secret of candidates) {
+    result = await tryVerifyAdminPin(secret);
+    if (result) break;
+  }
+  if (!result) {
+    throw new Error("PIN non riconosciuto o utente non ha permessi admin.");
+  }
+
+  // Il token restituito da verify-admin-pin è un capability token di
+  // approvazione (header x-admin-approval), NON un Bearer di sessione.
+  if (result.token) {
+    _adminApprovalToken = result.token;
+  }
+  _adminUserId = result.userId;
+  return result;
 }
 
 export async function getPendingRequests(): Promise<AuthRequest[]> {
@@ -328,20 +393,20 @@ export async function resolveRequest(
   id: string,
   approved: boolean,
   adminName?: string,
-  /** PIN di autorizzazione del manager — richiesto dalla versione aggiornata del POS */
-  authPin?: string
+  /**
+   * Motivazione della decisione. OBBLIGATORIA lato POS quando si APPROVA uno
+   * storno (void_item / qty_reduce): il server risponde 400 se manca.
+   */
+  reason?: string
 ): Promise<void> {
+  // L'admin è verificato lato server tramite gli header x-op-id /
+  // x-admin-approval (vedi apiRequest). Il body non deve contenere PIN.
   const body: Record<string, unknown> = {
     approved,
     adminName: adminName ?? null,
   };
-  if (_adminUserId !== null) {
-    body.adminId = _adminUserId;
-  }
-  if (authPin) {
-    body.authPin = authPin;
-    // campo alternativo usato da alcune versioni del POS
-    body.adminPin = authPin;
+  if (reason && reason.trim()) {
+    body.reason = reason.trim();
   }
   // Non ritentare mai automaticamente una mutazione: un errore potrebbe
   // arrivare dopo che il POS ha già applicato la decisione.
@@ -829,6 +894,12 @@ export function subscribeToEvents(
     xhr.open("GET", url, true);
     xhr.setRequestHeader("Accept", "text/event-stream");
     xhr.setRequestHeader("Cache-Control", "no-cache");
+    if (_adminUserId !== null) {
+      xhr.setRequestHeader("x-op-id", String(_adminUserId));
+    }
+    if (_adminApprovalToken) {
+      xhr.setRequestHeader("x-admin-approval", _adminApprovalToken);
+    }
     if (_adminToken) {
       xhr.setRequestHeader("Authorization", `Bearer ${_adminToken}`);
     }

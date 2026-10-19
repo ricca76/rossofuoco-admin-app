@@ -26,10 +26,13 @@ interface RequestsState {
 interface RequestsContextValue extends RequestsState {
   fetchRequests: () => Promise<void>;
   refresh: () => Promise<void>;
-  /** Approva una richiesta. Passa authPin se il POS lo richiede. */
-  approve: (id: string, adminName?: string, authPin?: string) => Promise<void>;
-  /** Nega una richiesta. Passa authPin se il POS lo richiede. */
-  deny: (id: string, adminName?: string, authPin?: string) => Promise<void>;
+  /**
+   * Approva una richiesta. `reason` è obbligatorio quando si approva uno
+   * storno (void_item / qty_reduce): il POS risponde 400 se manca.
+   */
+  approve: (id: string, adminName?: string, reason?: string) => Promise<void>;
+  /** Nega una richiesta. `reason` è facoltativo. */
+  deny: (id: string, adminName?: string, reason?: string) => Promise<void>;
   getRequest: (id: string) => AuthRequest | undefined;
 }
 
@@ -115,9 +118,9 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     }
   }, [detectAndNotify]);
 
-  const approve = useCallback(async (id: string, adminName?: string, authPin?: string) => {
+  const approve = useCallback(async (id: string, adminName?: string, reason?: string) => {
     const req = state.requests.find((r) => r.id === id);
-    await resolveRequest(id, true, adminName, authPin);
+    await resolveRequest(id, true, adminName, reason);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     knownIds.current.delete(id);
     if (req) {
@@ -129,9 +132,9 @@ export function RequestsProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [state.requests]);
 
-  const deny = useCallback(async (id: string, adminName?: string, authPin?: string) => {
+  const deny = useCallback(async (id: string, adminName?: string, reason?: string) => {
     const req = state.requests.find((r) => r.id === id);
-    await resolveRequest(id, false, adminName, authPin);
+    await resolveRequest(id, false, adminName, reason);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     knownIds.current.delete(id);
     if (req) {
