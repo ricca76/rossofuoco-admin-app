@@ -3,3 +3,4 @@
 - [AI assistant routing](ai-assistant-routing.md) — route Claude su /api/ai/chat; usa Replit AI Integrations (no API key utente); integrazione anthropic-ai in lib/
 - [Expo Go proxy startup](expo-go-proxy-startup.md) — il proxy pubblico richiede health-check immediato e manifest Expo esplicito per evitare il fallback HTML 404.
 - [Expo Metro image parser security](expo-metro-image-parser-security.md) — non forzare Metro 0.83.8 su Expo 54; sostituire image-size con il fork compatibile 1.x.
+- [GitHub transport authorization](github-transport-auth.md) — l'accesso API GitHub App non dimostra che il trasporto Git/LFS sia autorizzato.
